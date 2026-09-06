@@ -18,6 +18,7 @@ class ManifestSet:
     languages: dict[str, Any]
     versions: dict[str, Any]
     licenses: dict[str, Any]
+    bootstrap: dict[str, Any]
 
 
 def repository_root() -> Path:
@@ -43,6 +44,7 @@ def load_manifests(root: Path | None = None) -> ManifestSet:
         languages=_load_json(config_root / "languages.json"),
         versions=_load_json(config_root / "versions.json"),
         licenses=_load_json(config_root / "licenses.json"),
+        bootstrap=_load_json(config_root / "bootstrap.json"),
     )
 
 

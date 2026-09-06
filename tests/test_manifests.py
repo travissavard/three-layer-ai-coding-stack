@@ -39,6 +39,21 @@ def test_tested_versions_are_pinned() -> None:
     assert tools["jdatamunch"]["version"] == "1.31.13"
 
 
+def test_uv_bootstrap_assets_have_published_sha256_digests() -> None:
+    bootstrap = load_manifests().bootstrap["uv"]
+
+    assert bootstrap["version"] == "0.12.10"
+    assert set(bootstrap["assets"]) == {
+        "windows-x86_64",
+        "windows-arm64",
+        "macos-x86_64",
+        "macos-arm64",
+        "linux-x86_64",
+        "linux-arm64",
+    }
+    assert all(len(asset["sha256"]) == 64 for asset in bootstrap["assets"].values())
+
+
 def test_jmunch_components_have_separate_commercial_license_records() -> None:
     records = {item["id"]: item for item in load_manifests().licenses["components"]}
 

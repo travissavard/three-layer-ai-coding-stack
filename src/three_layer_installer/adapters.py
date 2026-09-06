@@ -30,6 +30,7 @@ class ClientAdapter:
     manifests: ManifestSet
     context: PathContext
     project: Path | None = None
+    uvx_command: str = "uvx"
 
     @property
     def definition(self) -> dict[str, object]:
@@ -84,7 +85,7 @@ class ClientAdapter:
                 }
             else:
                 command = [
-                    "uvx",
+                    self.uvx_command,
                     "--from",
                     f"{tool['package']}=={tool['version']}",
                     tool["executable"],
@@ -182,5 +183,12 @@ def adapter_for(
     manifests: ManifestSet,
     context: PathContext,
     project: Path | None = None,
+    uvx_command: str = "uvx",
 ) -> ClientAdapter:
-    return ClientAdapter(client_id, manifests, context, project.resolve() if project else None)
+    return ClientAdapter(
+        client_id,
+        manifests,
+        context,
+        project.resolve() if project else None,
+        uvx_command,
+    )

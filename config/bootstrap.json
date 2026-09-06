@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "uv": {
+    "version": "0.12.10",
+    "base_url": "https://github.com/astral-sh/uv/releases/download/0.12.10/",
+    "assets": {
+      "windows-x86_64": {"name": "uv-x86_64-pc-windows-msvc.zip", "sha256": "f65744f94072152b1f86ba2aace4d01f1124d9a8ecb235805039e3718c36cac2"},
+      "windows-arm64": {"name": "uv-aarch64-pc-windows-msvc.zip", "sha256": "ee985c51c0c9c1f82267a5d80f959b34a7ff888c109182bd3b2b35c4661bbcde"},
+      "macos-x86_64": {"name": "uv-x86_64-apple-darwin.tar.gz", "sha256": "5296d5aa2b9143360405eea866f8ef4d5dc8986b164eb0dc35e8f876a9304d30"},
+      "macos-arm64": {"name": "uv-aarch64-apple-darwin.tar.gz", "sha256": "51c6170e8e3a01cef9f33b94f582b7b81ac65046f55d40afb35f9cff5a68c179"},
+      "linux-x86_64": {"name": "uv-x86_64-unknown-linux-gnu.tar.gz", "sha256": "173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b"},
+      "linux-arm64": {"name": "uv-aarch64-unknown-linux-gnu.tar.gz", "sha256": "9ff6b9d4665edcdd3a88dcc73cd1eb641754deb927f14e8c62ebfde6bf4f5f5e"}
+    }
+  },
+  "rtk": {
+    "version": "0.48.0",
+    "base_url": "https://github.com/rtk-ai/rtk/releases/download/v0.48.0/",
+    "assets": {
+      "windows-x86_64": {"name": "rtk-x86_64-pc-windows-msvc.zip", "sha256": "8c9ae56bacde865112777a9fe9791b449186d8b2a081c32c0772ef773f284f93"},
+      "macos-x86_64": {"name": "rtk-x86_64-apple-darwin.tar.gz", "sha256": "a95f2c23e08572dcc84ddff5fbe432e41e7f94369622eb086cca49ae0b6f61e8"},
+      "macos-arm64": {"name": "rtk-aarch64-apple-darwin.tar.gz", "sha256": "4fa025cc93a744b6963f4e53a008e5ba3f74b6a38061f4a47c639e1c3023e0db"},
+      "linux-x86_64": {"name": "rtk-x86_64-unknown-linux-musl.tar.gz", "sha256": "e4e650fa1677c0de2f6839a6040d7b17f312d32f163c402b75af70e9e5af1a91"},
+      "linux-arm64": {"name": "rtk-aarch64-unknown-linux-gnu.tar.gz", "sha256": "5ed65486a96077bd6bba7c87fdc9d0e4a1918d19619be3c87380888389a30c7c"}
+    }
+  }
+}
