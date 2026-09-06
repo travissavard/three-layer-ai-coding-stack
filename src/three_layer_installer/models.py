@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 
 class Layer(Enum):
@@ -58,6 +59,53 @@ class JMunchUse(str, Enum):
     SKIP = "skip"
 
 
+class OperationMode(str, Enum):
+    INSTALL = "install"
+    VERIFY = "verify"
+    RESTORE = "restore"
+    LICENSES = "licenses"
+
+
+@dataclass(frozen=True)
+class LanguageSelection:
+    mode: str
+    names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class InstallerOptions:
+    mode: OperationMode
+    dry_run: bool
+    assume_yes: bool
+    clients: tuple[ClientId, ...]
+    all_clients: bool
+    project: Path | None
+    language_selection: LanguageSelection
+    latest: bool
+    jmunch_use: JMunchUse | None
+    restore_id: str | None = None
+
+
+@dataclass(frozen=True)
+class Detection:
+    client: ClientId
+    detected: bool
+    executable: Path | None
+    config_paths: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
+class PlannedAction:
+    kind: str
+    client: ClientId
+    layer: Layer
+    description: str
+    component: str | None = None
+    argv: tuple[str, ...] = ()
+    path: Path | None = None
+    payload: dict[str, object] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class LayerResult:
     client: ClientId
@@ -67,3 +115,12 @@ class LayerResult:
     components: dict[str, Status] = field(default_factory=dict)
     verification_scope: VerificationScope = VerificationScope.NONE
 
+
+@dataclass(frozen=True)
+class InstallPlan:
+    options: InstallerOptions
+    selected_clients: tuple[ClientId, ...]
+    languages: tuple[str, ...]
+    actions: tuple[PlannedAction, ...]
+    results: tuple[LayerResult, ...]
+    requires_jmunch_declaration: bool = False
