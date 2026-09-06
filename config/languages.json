@@ -9,8 +9,8 @@
       "version_components": ["typescript-language-server", "typescript"],
       "command": ["typescript-language-server", "--stdio"],
       "language_ids": {".ts": "typescript", ".tsx": "typescriptreact", ".js": "javascript", ".jsx": "javascriptreact", ".mjs": "javascript", ".cjs": "javascript"},
-      "installer": ["npm", "install", "--global", "typescript-language-server@6.0.0", "typescript@7.0.2"],
-      "latest_installer": ["npm", "install", "--global", "typescript-language-server", "typescript"]
+      "installer": ["npm", "install", "--global", "typescript-language-server@6.0.0", "typescript@6.0.3"],
+      "latest_installer": ["npm", "install", "--global", "typescript-language-server", "typescript@6"]
     },
     "python": {
       "display_name": "Python",

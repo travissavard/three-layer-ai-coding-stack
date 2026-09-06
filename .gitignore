@@ -13,3 +13,5 @@ dist/
 .code-index/
 .doc-index/
 .data-index/
+.prove-it/
+.e2e-results/
