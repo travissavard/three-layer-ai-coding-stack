@@ -18,9 +18,10 @@ class Runner:
         argv: Sequence[str],
         *,
         environment: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
         timeout: float = 60,
     ) -> CommandResult:
-        del environment, timeout
+        del environment, cwd, timeout
         return CommandResult(0 if tuple(argv) == ("rtk", "gain") else 1, "", "")
 
 
@@ -137,3 +138,42 @@ def test_verify_stack_preserves_unavailable_lsp_classification(tmp_path: Path) -
 
     lsp = next(result for result in results if result.layer is Layer.LSP)
     assert lsp.status is Status.UNAVAILABLE_FROM_CLIENT
+
+
+def test_verify_ignores_language_not_integrated_by_selected_client(tmp_path: Path) -> None:
+    detections = {
+        client: Detection(client, client is ClientId.CLAUDE, None) for client in ClientId
+    }
+    plan = build_plan(
+        parse_args(
+            [
+                "--verify",
+                "--client",
+                "claude",
+                "--languages",
+                "typescript,go",
+                "--jmunch-use",
+                "skip",
+            ]
+        ),
+        load_manifests(),
+        detections,
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def verify_lsp(command, **_kwargs):
+        calls.append(tuple(command))
+        return ProtocolCheck(True, "ok")
+
+    results = verify_stack(
+        plan,
+        load_manifests(),
+        _context(tmp_path),
+        runner=Runner(),
+        which=lambda name: f"C:/tools/{name}.exe",
+        lsp_verifier=verify_lsp,
+    )
+
+    lsp = next(result for result in results if result.layer is Layer.LSP)
+    assert calls == [("typescript-language-server", "--stdio")]
+    assert lsp.components == {"typescript": Status.ACTIVE}

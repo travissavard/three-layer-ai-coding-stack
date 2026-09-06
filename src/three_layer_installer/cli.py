@@ -207,6 +207,10 @@ def run(
         )
     except ExecutionError as exc:
         output(f"Installation failed: {exc}")
+        if exc.operation_id:
+            output(
+                f"Backup ID: {exc.operation_id} (restore with --restore {exc.operation_id})"
+            )
         return 4
     output(render_results(report.results, loaded))
     if report.operation_id:

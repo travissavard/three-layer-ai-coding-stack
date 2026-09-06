@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_on": "2026-09-04",
+  "verified_on": "2026-09-06",
   "layers": [
     {"id": 1, "name": "RTK"},
     {"id": 2, "name": "Native LSP"},
@@ -10,28 +10,77 @@
     "claude": {
       "display_name": "Claude Code",
       "executables": ["claude"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--auto-patch"]},
-      "lsp": {"classification": "native", "scope": "user"},
+      "rtk": {
+        "mode": "native",
+        "scope": "user",
+        "args": ["init", "-g", "--auto-patch"],
+        "owned_paths": {
+          "all": [
+            "${CLAUDE_CONFIG_DIR:-~/.claude}/RTK.md",
+            "${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md",
+            "${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json",
+            "${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json.bak",
+            "~/.claude/hooks/rtk-rewrite.sh",
+            "~/.claude/hooks/.rtk-hook.sha256"
+          ],
+          "windows": ["%APPDATA%/rtk/filters.toml"],
+          "macos": ["~/Library/Application Support/rtk/filters.toml"],
+          "linux": ["${XDG_CONFIG_HOME:-~/.config}/rtk/filters.toml"]
+        }
+      },
+      "lsp": {"classification": "native", "scope": "user", "languages": ["typescript", "python", "rust"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.claude.json"}}
     },
     "codex": {
       "display_name": "Codex CLI",
       "executables": ["codex"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--codex"]},
+      "rtk": {
+        "mode": "native",
+        "scope": "user",
+        "args": ["init", "-g", "--codex"],
+        "owned_paths": {
+          "all": [
+            "${CODEX_HOME:-~/.codex}/AGENTS.md",
+            "${CODEX_HOME:-~/.codex}/RTK.md"
+          ]
+        }
+      },
       "lsp": {"classification": "unavailable"},
       "mcp": {"format": "toml", "root_key": "mcp_servers", "user_paths": {"all": "~/.codex/config.toml"}, "absolute_commands": true}
     },
     "copilot": {
       "display_name": "GitHub Copilot CLI",
       "executables": ["copilot"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--copilot"]},
-      "lsp": {"classification": "native", "scope": "user-or-project"},
+      "rtk": {
+        "mode": "native",
+        "scope": "user",
+        "args": ["init", "-g", "--copilot"],
+        "owned_paths": {
+          "all": [
+            "${COPILOT_HOME:-~/.copilot}/copilot-instructions.md",
+            "${COPILOT_HOME:-~/.copilot}/hooks/rtk-rewrite.json"
+          ]
+        }
+      },
+      "lsp": {"classification": "native", "scope": "user-or-project", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.copilot/mcp-config.json"}}
     },
     "gemini": {
       "display_name": "Gemini CLI",
       "executables": ["gemini"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--gemini"]},
+      "rtk": {
+        "mode": "native",
+        "scope": "user",
+        "args": ["init", "-g", "--gemini"],
+        "owned_paths": {
+          "all": [
+            "~/.gemini/hooks/rtk-hook-gemini.sh",
+            "~/.gemini/hooks/.rtk-hook.sha256",
+            "~/.gemini/GEMINI.md",
+            "~/.gemini/settings.json"
+          ]
+        }
+      },
       "lsp": {"classification": "unavailable"},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.gemini/settings.json"}}
     },
@@ -39,41 +88,66 @@
       "display_name": "Qwen Code",
       "executables": ["qwen"],
       "rtk": {"mode": "guidance", "path": "~/.qwen/QWEN.md"},
-      "lsp": {"classification": "experimental", "scope": "project", "path": ".lsp.json", "required_flag": "--experimental-lsp"},
+      "lsp": {"classification": "experimental", "scope": "project", "path": ".lsp.json", "required_flag": "--experimental-lsp", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.qwen/settings.json"}}
     },
     "kimi": {
       "display_name": "Kimi CLI",
       "executables": ["kimi"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--agent", "kimi"]},
+      "rtk": {
+        "mode": "native",
+        "scope": "project",
+        "args": ["init", "--agent", "kimi"],
+        "owned_paths": {"project": ["AGENTS.md"]}
+      },
       "lsp": {"classification": "unavailable"},
-      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"current": "~/.kimi-code/mcp.json", "legacy": "~/.kimi/mcp.json"}}
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"current": "~/.kimi/mcp.json", "legacy": "~/.kimi-code/mcp.json"}}
     },
     "kilo": {
       "display_name": "Kilo Code",
       "executables": ["kilo"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--agent", "kilocode"]},
-      "lsp": {"classification": "native", "scope": "user-or-project"},
-      "mcp": {"format": "jsonc", "root_key": "mcp", "user_paths": {"windows": "%APPDATA%/kilo/kilo.jsonc", "macos": "~/.config/kilo/kilo.jsonc", "linux": "${XDG_CONFIG_HOME:-~/.config}/kilo/kilo.jsonc"}}
+      "rtk": {
+        "mode": "native",
+        "scope": "project",
+        "args": ["init", "--agent", "kilocode"],
+        "owned_paths": {"project": [".kilocode/rules/rtk-rules.md"]}
+      },
+      "lsp": {"classification": "native", "scope": "user-or-project", "languages": ["typescript", "python", "rust", "go"]},
+      "mcp": {"format": "jsonc", "root_key": "mcp", "user_paths": {"all": "~/.config/kilo/kilo.jsonc"}, "project_path": ".kilo/kilo.jsonc"}
     },
     "kiro": {
       "display_name": "Kiro CLI/IDE",
       "executables": ["kiro-cli", "kiro"],
       "rtk": {"mode": "guidance", "path": "~/.kiro/steering/token-efficient-routing.md"},
-      "lsp": {"classification": "native", "scope": "project", "path": ".kiro/settings/lsp.json"},
+      "lsp": {"classification": "native", "scope": "project", "path": ".kiro/settings/lsp.json", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.kiro/settings/mcp.json"}, "project_path": ".kiro/settings/mcp.json"}
     },
     "antigravity": {
       "display_name": "Antigravity",
       "executables": ["antigravity"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--agent", "antigravity"]},
+      "rtk": {
+        "mode": "native",
+        "scope": "project",
+        "args": ["init", "--agent", "antigravity"],
+        "owned_paths": {"project": [".agents/rules/antigravity-rtk-rules.md"]}
+      },
       "lsp": {"classification": "unavailable"},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.gemini/config/mcp_config.json"}, "project_path": ".agents/mcp_config.json"}
     },
     "vscode": {
       "display_name": "Visual Studio Code",
       "executables": ["code"],
-      "rtk": {"mode": "native", "args": ["init", "-g", "--copilot"]},
+      "rtk": {
+        "mode": "native",
+        "scope": "user",
+        "args": ["init", "-g", "--copilot"],
+        "owned_paths": {
+          "all": [
+            "${COPILOT_HOME:-~/.copilot}/copilot-instructions.md",
+            "${COPILOT_HOME:-~/.copilot}/hooks/rtk-rewrite.json"
+          ]
+        }
+      },
       "lsp": {"classification": "editor", "scope": "editor"},
       "mcp": {"format": "json", "root_key": "servers", "user_paths": {"windows": "%APPDATA%/Code/User/mcp.json", "macos": "~/Library/Application Support/Code/User/mcp.json", "linux": "${XDG_CONFIG_HOME:-~/.config}/Code/User/mcp.json"}, "project_path": ".vscode/mcp.json"}
     }

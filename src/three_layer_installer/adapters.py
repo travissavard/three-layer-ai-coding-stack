@@ -103,6 +103,10 @@ class ClientAdapter:
                         "args": command[1:],
                         "env": dict(JMUNCH_ENV),
                     }
+                    if self.client_id is ClientId.COPILOT:
+                        entry.update({"type": "local", "tools": ["*"]})
+                    elif self.client_id is ClientId.VSCODE:
+                        entry["type"] = "stdio"
             entries[component] = entry
         return entries
 
@@ -147,23 +151,34 @@ class ClientAdapter:
         for language in languages:
             definition = self.manifests.languages["languages"][language]
             command = definition["command"]
+            language_ids = definition["language_ids"]
             root: tuple[str, ...]
             if self.client_id is ClientId.QWEN:
                 root = ()
                 entry = {
                     "command": command[0],
                     "args": command[1:],
-                    "extensions": definition["extensions"],
+                    "extensionToLanguage": language_ids,
                 }
             elif self.client_id is ClientId.KILO:
                 root = ("lsp",)
                 entry = {"command": command, "extensions": definition["extensions"]}
+            elif self.client_id is ClientId.KIRO:
+                root = ("languages",)
+                entry = {
+                    "name": definition["server"],
+                    "command": command[0],
+                    "args": command[1:],
+                    "file_extensions": [
+                        extension.removeprefix(".") for extension in definition["extensions"]
+                    ],
+                }
             else:
                 root = ("lspServers",)
                 entry = {
                     "command": command[0],
                     "args": command[1:],
-                    "fileExtensions": definition["extensions"],
+                    "fileExtensions": language_ids,
                 }
             updated = set_jsonc_path(updated, (*root, language), entry)
         return updated

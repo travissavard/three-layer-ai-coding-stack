@@ -64,24 +64,35 @@ def build_plan(
 
         rtk = definition["rtk"]
         rtk_status = Status.GUIDANCE_ONLY if rtk["mode"] == "guidance" else Status.CONFIGURED
-        actions.append(
-            PlannedAction(
-                kind=f"rtk-{rtk['mode']}",
-                client=client_id,
-                layer=Layer.RTK,
-                description=f"Configure RTK for {display_name}",
-                argv=tuple(rtk.get("args", ())),
+        if rtk.get("scope") == "project" and options.project is None:
+            results.append(
+                LayerResult(
+                    client_id,
+                    Layer.RTK,
+                    Status.SKIPPED,
+                    "This client requires --project for RTK configuration",
+                )
             )
-        )
-        results.append(
-            LayerResult(
-                client_id,
-                Layer.RTK,
-                rtk_status,
-                "RTK routing will be configured",
-                verification_scope=VerificationScope.CONFIG_ONLY,
+        else:
+            actions.append(
+                PlannedAction(
+                    kind=f"rtk-{rtk['mode']}",
+                    client=client_id,
+                    layer=Layer.RTK,
+                    description=f"Configure RTK for {display_name}",
+                    argv=tuple(rtk.get("args", ())),
+                    path=options.project if rtk.get("scope") == "project" else None,
+                )
             )
-        )
+            results.append(
+                LayerResult(
+                    client_id,
+                    Layer.RTK,
+                    rtk_status,
+                    "RTK routing will be configured",
+                    verification_scope=VerificationScope.CONFIG_ONLY,
+                )
+            )
 
         lsp = definition["lsp"]
         classification = lsp["classification"]
@@ -92,6 +103,16 @@ def build_plan(
                     Layer.LSP,
                     Status.UNAVAILABLE_FROM_CLIENT,
                     "The AI client does not expose native agent-facing LSP tools",
+                )
+            )
+        elif classification == "editor":
+            results.append(
+                LayerResult(
+                    client_id,
+                    Layer.LSP,
+                    Status.SKIPPED,
+                    "LSP is supplied by installed editor language extensions; no standalone "
+                    "server configuration is written",
                 )
             )
         elif not languages:
@@ -108,7 +129,12 @@ def build_plan(
                 )
             )
         else:
+            supported = set(lsp.get("languages", ()))
+            lsp_component_status: dict[str, Status] = {}
             for language in languages:
+                if language not in supported:
+                    lsp_component_status[language] = Status.SKIPPED
+                    continue
                 actions.append(
                     PlannedAction(
                         kind="configure-lsp",
@@ -118,16 +144,25 @@ def build_plan(
                         description=f"Configure {language} LSP for {display_name}",
                     )
                 )
+                lsp_component_status[language] = Status.CONFIGURED
+            configured = any(
+                status is Status.CONFIGURED for status in lsp_component_status.values()
+            )
             status = {
                 "experimental": Status.EXPERIMENTAL,
-                "editor": Status.CONFIGURED,
-            }.get(classification, Status.CONFIGURED)
+            }.get(classification, Status.CONFIGURED) if configured else Status.SKIPPED
+            message = (
+                "Native LSP configuration is planned"
+                if configured
+                else "No selected language pack has a verified client integration"
+            )
             results.append(
                 LayerResult(
                     client_id,
                     Layer.LSP,
                     status,
-                    "Native LSP configuration is planned",
+                    message,
+                    components=lsp_component_status,
                     verification_scope=VerificationScope.CONFIG_ONLY,
                 )
             )
@@ -152,7 +187,7 @@ def build_plan(
                 )
             )
         else:
-            component_status: dict[str, Status] = {}
+            jmunch_component_status: dict[str, Status] = {}
             for component in ("jcodemunch", "jdocmunch", "jdatamunch"):
                 tool = manifests.versions["tools"][component]
                 package_spec = f"{tool['package']}=={tool['version']}"
@@ -166,14 +201,14 @@ def build_plan(
                         argv=("uvx", "--from", package_spec, tool["executable"]),
                     )
                 )
-                component_status[component] = Status.CONFIGURED
+                jmunch_component_status[component] = Status.CONFIGURED
             results.append(
                 LayerResult(
                     client_id,
                     Layer.JMUNCH,
                     Status.CONFIGURED,
                     "All three jMunch MCP components will be configured as one layer",
-                    components=component_status,
+                    components=jmunch_component_status,
                     verification_scope=VerificationScope.CONFIG_ONLY,
                 )
             )

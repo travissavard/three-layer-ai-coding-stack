@@ -1,5 +1,5 @@
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -17,20 +17,33 @@ from three_layer_installer.planner import build_plan
 
 
 class RecordingRunner:
-    def __init__(self, failing_prefix: tuple[str, ...] | None = None) -> None:
-        self.calls: list[tuple[tuple[str, ...], Mapping[str, str] | None]] = []
+    def __init__(
+        self,
+        failing_prefix: tuple[str, ...] | None = None,
+        on_call: Callable[
+            [tuple[str, ...], Mapping[str, str] | None, Path | None], None
+        ]
+        | None = None,
+    ) -> None:
+        self.calls: list[
+            tuple[tuple[str, ...], Mapping[str, str] | None, Path | None]
+        ] = []
         self.failing_prefix = failing_prefix
+        self.on_call = on_call
 
     def run(
         self,
         argv: Sequence[str],
         *,
         environment: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
         timeout: float = 60,
     ) -> CommandResult:
         del timeout
         call = tuple(argv)
-        self.calls.append((call, environment))
+        self.calls.append((call, environment, cwd))
+        if self.on_call:
+            self.on_call(call, environment, cwd)
         if self.failing_prefix and call[: len(self.failing_prefix)] == self.failing_prefix:
             return CommandResult(1, "", "fixture failure")
         return CommandResult(0, "ok", "")
@@ -76,7 +89,7 @@ def test_apply_configures_claude_and_records_restorable_operation(tmp_path: Path
     assert set(parsed["mcpServers"]) == {"jcodemunch", "jdocmunch", "jdatamunch"}
     assert report.operation_id
     assert (tmp_path / "Local" / "three-layer-ai-coding-stack" / "operations").is_dir()
-    commands = [call for call, _environment in runner.calls]
+    commands = [call for call, _environment, _cwd in runner.calls]
     assert ("rtk", "gain") in commands
     assert ("rtk", "init", "--dry-run", "-g", "--auto-patch") in commands
     assert ("rtk", "init", "-g", "--auto-patch") in commands
@@ -85,7 +98,17 @@ def test_apply_configures_claude_and_records_restorable_operation(tmp_path: Path
 def test_codex_installs_jmunch_into_isolated_uv_tool_directories(tmp_path: Path) -> None:
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")
-    runner = RecordingRunner()
+    def materialize_tool(
+        call: tuple[str, ...], environment: Mapping[str, str] | None, _cwd: Path | None
+    ) -> None:
+        if call[:3] != ("uv", "tool", "install") or environment is None:
+            return
+        component = call[3].split("==", 1)[0].removesuffix("-mcp")
+        executable = Path(environment["UV_TOOL_BIN_DIR"]) / f"{component}-mcp.exe"
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_bytes(b"tool")
+
+    runner = RecordingRunner(on_call=materialize_tool)
     plan = _plan(
         ["--client", "codex", "--jmunch-use", "commercial-licensed"],
         ClientId.CODEX,
@@ -99,7 +122,11 @@ def test_codex_installs_jmunch_into_isolated_uv_tool_directories(tmp_path: Path)
         which=lambda name: f"C:/tools/{name}.exe",
     )
 
-    installs = [(call, env) for call, env in runner.calls if call[:3] == ("uv", "tool", "install")]
+    installs = [
+        (call, env)
+        for call, env, _cwd in runner.calls
+        if call[:3] == ("uv", "tool", "install")
+    ]
     assert len(installs) == 3
     assert all(env and "UV_TOOL_DIR" in env and "UV_TOOL_BIN_DIR" in env for _call, env in installs)
 
@@ -207,10 +234,223 @@ def test_apply_installs_missing_rtk_inside_restorable_transaction(tmp_path: Path
     )
 
     assert installed == [context.state_root / "bin" / "rtk.exe"]
-    assert (str(installed[0]), "gain") in [call for call, _env in runner.calls]
+    assert (str(installed[0]), "gain") in [call for call, _env, _cwd in runner.calls]
     assert report.operation_id is not None
 
     from three_layer_installer.backup import BackupManager
 
     BackupManager(context.state_root).restore(report.operation_id)
     assert installed[0].exists() is False
+
+
+def test_unsupported_claude_language_does_not_install_a_server(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    plan = _plan(
+        [
+            "--client",
+            "claude",
+            "--languages",
+            "go",
+            "--jmunch-use",
+            "skip",
+        ],
+        ClientId.CLAUDE,
+    )
+
+    execute_plan(
+        plan,
+        load_manifests(),
+        _context(tmp_path),
+        runner=runner,
+        which=lambda name: f"C:/tools/{name}.exe",
+    )
+
+    assert not any(call[:2] == ("go", "install") for call, _env, _cwd in runner.calls)
+
+
+def test_missing_language_runtime_fails_before_install_command(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    plan = _plan(
+        [
+            "--client",
+            "copilot",
+            "--languages",
+            "python",
+            "--jmunch-use",
+            "skip",
+        ],
+        ClientId.COPILOT,
+    )
+
+    with pytest.raises(ExecutionError, match="requires npm") as error:
+        execute_plan(
+            plan,
+            load_manifests(),
+            _context(tmp_path),
+            runner=runner,
+            which=lambda name: (
+                f"C:/tools/{name}.exe" if name in {"rtk", "copilot"} else None
+            ),
+        )
+
+    assert not any(call[:2] == ("npm", "install") for call, _env, _cwd in runner.calls)
+    assert error.value.operation_id is not None
+
+
+def test_project_rtk_runs_in_project_with_telemetry_disabled_and_restores(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    agents_md = project / "AGENTS.md"
+    agents_md.write_text("user instructions\n", encoding="utf-8")
+
+    def mutate_rtk_config(
+        call: tuple[str, ...], _environment: Mapping[str, str] | None, cwd: Path | None
+    ) -> None:
+        if call == ("rtk", "init", "--agent", "kimi"):
+            assert cwd == project.resolve()
+            agents_md.write_text("rtk changed this\n", encoding="utf-8")
+
+    runner = RecordingRunner(on_call=mutate_rtk_config)
+    plan = _plan(
+        [
+            "--client",
+            "kimi",
+            "--project",
+            str(project),
+            "--jmunch-use",
+            "skip",
+        ],
+        ClientId.KIMI,
+    )
+
+    report = execute_plan(
+        plan,
+        load_manifests(),
+        _context(tmp_path),
+        runner=runner,
+        which=lambda name: f"C:/tools/{name}.exe",
+    )
+
+    init_calls = [
+        (call, environment, cwd)
+        for call, environment, cwd in runner.calls
+        if call[:2] == ("rtk", "init")
+    ]
+    assert init_calls == [
+        (
+            ("rtk", "init", "--dry-run", "--agent", "kimi"),
+            {"RTK_TELEMETRY_DISABLED": "1"},
+            project.resolve(),
+        ),
+        (
+            ("rtk", "init", "--agent", "kimi"),
+            {"RTK_TELEMETRY_DISABLED": "1"},
+            project.resolve(),
+        ),
+    ]
+    assert report.operation_id is not None
+
+    from three_layer_installer.backup import BackupManager
+
+    BackupManager(_context(tmp_path).state_root).restore(report.operation_id)
+    assert agents_md.read_text(encoding="utf-8") == "user instructions\n"
+
+
+def test_restore_covers_all_claude_files_that_native_rtk_can_change(tmp_path: Path) -> None:
+    claude_dir = tmp_path / ".claude"
+    hooks_dir = claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True)
+    existing = {
+        claude_dir / "settings.json": b'{"userSetting":true}\n',
+        hooks_dir / "rtk-rewrite.sh": b"legacy hook\n",
+        hooks_dir / ".rtk-hook.sha256": b"legacy hash\n",
+    }
+    for path, content in existing.items():
+        path.write_bytes(content)
+
+    created = (
+        claude_dir / "RTK.md",
+        claude_dir / "CLAUDE.md",
+        claude_dir / "settings.json.bak",
+        tmp_path / "Roaming" / "rtk" / "filters.toml",
+    )
+
+    def mutate_rtk_config(
+        call: tuple[str, ...],
+        _environment: Mapping[str, str] | None,
+        _cwd: Path | None,
+    ) -> None:
+        if call != ("rtk", "init", "-g", "--auto-patch"):
+            return
+        (claude_dir / "settings.json").write_text('{"hooks":{}}\n', encoding="utf-8")
+        (hooks_dir / "rtk-rewrite.sh").unlink()
+        (hooks_dir / ".rtk-hook.sha256").unlink()
+        for path in created:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("created by rtk\n", encoding="utf-8")
+
+    runner = RecordingRunner(on_call=mutate_rtk_config)
+    plan = _plan(
+        ["--client", "claude", "--jmunch-use", "skip"],
+        ClientId.CLAUDE,
+    )
+    context = _context(tmp_path)
+
+    report = execute_plan(
+        plan,
+        load_manifests(),
+        context,
+        runner=runner,
+        which=lambda name: f"C:/tools/{name}.exe",
+    )
+    assert report.operation_id is not None
+
+    from three_layer_installer.backup import BackupManager
+
+    BackupManager(context.state_root).restore(report.operation_id)
+    for path, content in existing.items():
+        assert path.read_bytes() == content
+    assert not any(path.exists() for path in created)
+
+
+def test_restore_removes_new_isolated_codex_jmunch_tool_directories(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+
+    def materialize_tool(
+        call: tuple[str, ...], environment: Mapping[str, str] | None, _cwd: Path | None
+    ) -> None:
+        if call[:3] != ("uv", "tool", "install") or environment is None:
+            return
+        component = call[3].split("==", 1)[0].removesuffix("-mcp")
+        executable = Path(environment["UV_TOOL_BIN_DIR"]) / f"{component}-mcp.exe"
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_bytes(b"tool")
+
+    runner = RecordingRunner(on_call=materialize_tool)
+    plan = _plan(
+        ["--client", "codex", "--jmunch-use", "commercial-licensed"],
+        ClientId.CODEX,
+    )
+
+    report = execute_plan(
+        plan,
+        load_manifests(),
+        context,
+        runner=runner,
+        which=lambda name: f"C:/tools/{name}.exe",
+    )
+
+    jmunch_root = context.state_root / "tools" / "jmunch"
+    assert {path.name for path in jmunch_root.iterdir()} == {
+        "jcodemunch",
+        "jdocmunch",
+        "jdatamunch",
+    }
+    assert report.operation_id is not None
+
+    from three_layer_installer.backup import BackupManager
+
+    BackupManager(context.state_root).restore(report.operation_id)
+    assert not any(jmunch_root.glob("*"))

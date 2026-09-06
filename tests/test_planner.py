@@ -5,6 +5,12 @@ from three_layer_installer.manifests import load_manifests
 from three_layer_installer.models import ClientId, Detection, Layer, Status
 from three_layer_installer.planner import build_plan
 
+PROJECT_RTK_CLIENTS = {
+    ClientId.KIMI: ("init", "--agent", "kimi"),
+    ClientId.KILO: ("init", "--agent", "kilocode"),
+    ClientId.ANTIGRAVITY: ("init", "--agent", "antigravity"),
+}
+
 
 def _detected(*clients: ClientId) -> dict[ClientId, Detection]:
     return {
@@ -90,3 +96,84 @@ def test_project_auto_languages_are_included_in_plan(tmp_path: Path) -> None:
     )
 
     assert plan.languages == ("python",)
+
+
+def test_claude_does_not_claim_unavailable_go_lsp_plugin() -> None:
+    plan = build_plan(
+        parse_args(
+            [
+                "--client",
+                "claude",
+                "--languages",
+                "go",
+                "--jmunch-use",
+                "skip",
+            ]
+        ),
+        load_manifests(),
+        _detected(ClientId.CLAUDE),
+    )
+
+    lsp = next(result for result in plan.results if result.layer is Layer.LSP)
+    assert lsp.status is Status.SKIPPED
+    assert lsp.components == {"go": Status.SKIPPED}
+    assert not any(action.layer is Layer.LSP for action in plan.actions)
+
+
+def test_vscode_editor_lsp_does_not_install_standalone_servers() -> None:
+    plan = build_plan(
+        parse_args(
+            [
+                "--client",
+                "vscode",
+                "--languages",
+                "python",
+                "--jmunch-use",
+                "skip",
+            ]
+        ),
+        load_manifests(),
+        _detected(ClientId.VSCODE),
+    )
+
+    lsp = next(result for result in plan.results if result.layer is Layer.LSP)
+    assert lsp.status is Status.SKIPPED
+    assert "editor" in lsp.message.lower()
+    assert not any(action.layer is Layer.LSP for action in plan.actions)
+
+
+def test_project_scoped_rtk_clients_require_an_explicit_project() -> None:
+    for client in PROJECT_RTK_CLIENTS:
+        plan = build_plan(
+            parse_args(["--client", client.value, "--jmunch-use", "skip"]),
+            load_manifests(),
+            _detected(client),
+        )
+
+        rtk = next(result for result in plan.results if result.layer is Layer.RTK)
+        assert rtk.status is Status.SKIPPED
+        assert "--project" in rtk.message
+        assert not any(action.layer is Layer.RTK for action in plan.actions)
+
+
+def test_project_scoped_rtk_actions_use_project_as_working_directory(tmp_path: Path) -> None:
+    for client, expected_argv in PROJECT_RTK_CLIENTS.items():
+        plan = build_plan(
+            parse_args(
+                [
+                    "--client",
+                    client.value,
+                    "--project",
+                    str(tmp_path),
+                    "--jmunch-use",
+                    "skip",
+                ]
+            ),
+            load_manifests(),
+            _detected(client),
+        )
+
+        action = next(item for item in plan.actions if item.layer is Layer.RTK)
+        assert action.argv == expected_argv
+        assert action.path == tmp_path.resolve()
+        assert "-g" not in action.argv

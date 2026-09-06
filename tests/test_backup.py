@@ -57,3 +57,32 @@ def test_manifest_records_hashes_not_configuration_contents(tmp_path: Path) -> N
     assert "fixture-secret-value" not in manifest_text
     assert manifest["jmunch_use"] == "noncommercial"
     assert len(manifest["files"][0]["before_sha256"]) == 64
+
+
+def test_restore_removes_a_new_managed_directory_tree(tmp_path: Path) -> None:
+    managed = tmp_path / "managed-tool"
+    manager = BackupManager(tmp_path / "state")
+    operation = manager.begin((managed,), JMunchUse.COMMERCIAL_LICENSED)
+    (managed / "bin").mkdir(parents=True)
+    (managed / "bin" / "tool").write_text("installed", encoding="utf-8")
+    manager.finalize(operation)
+
+    manager.restore(operation.operation_id)
+
+    assert managed.exists() is False
+
+
+def test_restore_refuses_a_changed_managed_directory_tree(tmp_path: Path) -> None:
+    managed = tmp_path / "managed-tool"
+    manager = BackupManager(tmp_path / "state")
+    operation = manager.begin((managed,), JMunchUse.COMMERCIAL_LICENSED)
+    managed.mkdir()
+    executable = managed / "tool"
+    executable.write_text("installed", encoding="utf-8")
+    manager.finalize(operation)
+    executable.write_text("changed later", encoding="utf-8")
+
+    with pytest.raises(BackupError, match="changed since installation"):
+        manager.restore(operation.operation_id)
+
+    assert executable.read_text(encoding="utf-8") == "changed later"

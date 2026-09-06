@@ -79,9 +79,16 @@ def _verify_lsp(
         return projected
     component_status: dict[str, Status] = {}
     messages: list[str] = []
+    selected_languages = tuple(
+        language
+        for language, status in projected.components.items()
+        if status is not Status.SKIPPED
+    )
+    if not selected_languages:
+        selected_languages = plan.languages
     with tempfile.TemporaryDirectory(prefix="three-layer-lsp-") as temporary:
         temporary_root = Path(temporary)
-        for language in plan.languages:
+        for language in selected_languages:
             definition = manifests.languages["languages"][language]
             command = tuple(definition["command"])
             if which(command[0]) is None:

@@ -14,9 +14,25 @@ class SuccessfulRunner:
         argv: Sequence[str],
         *,
         environment: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
         timeout: float = 60,
     ) -> CommandResult:
-        del argv, environment, timeout
+        del argv, environment, cwd, timeout
+        return CommandResult(0, "ok", "")
+
+
+class FailingRtkRunner(SuccessfulRunner):
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        environment: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
+        timeout: float = 60,
+    ) -> CommandResult:
+        del environment, cwd, timeout
+        if tuple(argv) == ("rtk", "init", "-g", "--auto-patch"):
+            return CommandResult(1, "", "fixture failure")
         return CommandResult(0, "ok", "")
 
 
@@ -144,3 +160,20 @@ def test_run_verify_calls_read_only_stack_verifier(tmp_path: Path) -> None:
     assert exit_code == 0
     assert calls == ["verify"]
     assert any("Three-Layer AI Coding Stack result" in line for line in output)
+
+
+def test_failed_apply_reports_the_restorable_backup_id(tmp_path: Path) -> None:
+    output: list[str] = []
+
+    exit_code = run(
+        ["--client", "claude", "--jmunch-use", "skip", "--yes"],
+        output=output.append,
+        context=_context(tmp_path),
+        runner=FailingRtkRunner(),
+        which=lambda name: f"C:/tools/{name}.exe",
+    )
+
+    assert exit_code == 4
+    rendered = "\n".join(output)
+    assert "Backup ID:" in rendered
+    assert "--restore" in rendered

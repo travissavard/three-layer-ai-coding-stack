@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -30,7 +31,29 @@ def _sha256(data: bytes) -> str:
 
 
 def _current_hash(path: Path) -> str | None:
-    return _sha256(path.read_bytes()) if path.is_file() else None
+    if path.is_symlink():
+        return _sha256(b"link\0" + os.readlink(path).encode())
+    if path.is_file():
+        return _sha256(path.read_bytes())
+    if not path.is_dir():
+        return None
+
+    digest = hashlib.sha256()
+    digest.update(b"directory\0")
+    for root, directories, files in os.walk(path, followlinks=False):
+        directories.sort()
+        files.sort()
+        root_path = Path(root)
+        for name in (*directories, *files):
+            child = root_path / name
+            relative = child.relative_to(path).as_posix().encode()
+            if child.is_symlink():
+                digest.update(b"link\0" + relative + b"\0" + os.readlink(child).encode())
+            elif child.is_dir():
+                digest.update(b"directory\0" + relative + b"\0")
+            else:
+                digest.update(b"file\0" + relative + b"\0" + child.read_bytes())
+    return digest.hexdigest()
 
 
 def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
@@ -76,6 +99,8 @@ class BackupManager:
         records: list[dict[str, Any]] = []
         unique_paths = tuple(dict.fromkeys(path.resolve() for path in paths))
         for index, path in enumerate(unique_paths):
+            if path.is_dir():
+                raise BackupError(f"refusing to replace an existing directory: {path}")
             existed = path.is_file()
             before = path.read_bytes() if existed else None
             backup_name = f"{index:04d}.bin" if existed else None
@@ -140,8 +165,10 @@ class BackupManager:
                 if not isinstance(backup_name, str):
                     raise BackupError(f"backup data is missing for {path}")
                 atomic_write(path, (backup_root / backup_name).read_bytes())
-            elif path.exists():
+            elif path.is_symlink() or path.is_file():
                 path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
 
         manifest["status"] = "restored"
         manifest["restored_at"] = datetime.now(timezone.utc).isoformat()
