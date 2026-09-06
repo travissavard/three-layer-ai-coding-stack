@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-09-04",
+  "tools": {
+    "rtk": {"version": "0.48.0", "source": "https://github.com/rtk-ai/rtk/releases/tag/v0.48.0", "license_id": "Apache-2.0"},
+    "uv": {"version": "0.12.10", "source": "https://github.com/astral-sh/uv/releases/tag/0.12.10", "license_id": "MIT OR Apache-2.0"},
+    "jcodemunch": {"version": "1.108.317", "package": "jcodemunch-mcp", "executable": "jcodemunch-mcp", "source": "https://pypi.org/project/jcodemunch-mcp/1.108.317/", "license_id": "LicenseRef-jCodeMunch-Dual-Use-1.1"},
+    "jdocmunch": {"version": "1.139.1", "package": "jdocmunch-mcp", "executable": "jdocmunch-mcp", "source": "https://pypi.org/project/jdocmunch-mcp/1.139.1/", "license_id": "LicenseRef-jDocMunch-Dual-Use"},
+    "jdatamunch": {"version": "1.31.13", "package": "jdatamunch-mcp", "executable": "jdatamunch-mcp", "source": "https://pypi.org/project/jdatamunch-mcp/1.31.13/", "license_id": "LicenseRef-jDataMunch-Dual-Use"},
+    "typescript-language-server": {"version": "6.0.0", "source": "https://www.npmjs.com/package/typescript-language-server/v/6.0.0", "license_id": "Apache-2.0"},
+    "typescript": {"version": "7.0.2", "source": "https://www.npmjs.com/package/typescript/v/7.0.2", "license_id": "Apache-2.0"},
+    "pyright": {"version": "1.1.413", "source": "https://www.npmjs.com/package/pyright/v/1.1.413", "license_id": "MIT"},
+    "gopls": {"version": "0.23.0", "source": "https://github.com/golang/tools/releases/tag/gopls/v0.23.0", "license_id": "BSD-3-Clause"},
+    "rust-analyzer": {"version": "active-rustup-toolchain", "source": "https://rust-analyzer.github.io/manual.html#installation", "license_id": "MIT OR Apache-2.0"},
+    "tomlkit": {"version": "0.15.1", "source": "https://pypi.org/project/tomlkit/0.15.1/", "license_id": "MIT"},
+    "python": {"version": ">=3.10", "source": "https://www.python.org/", "license_id": "PSF-2.0"}
+  }
+}

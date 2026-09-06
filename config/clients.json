@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-09-04",
+  "layers": [
+    {"id": 1, "name": "RTK"},
+    {"id": 2, "name": "Native LSP"},
+    {"id": 3, "name": "jMunch"}
+  ],
+  "clients": {
+    "claude": {
+      "display_name": "Claude Code",
+      "executables": ["claude"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--auto-patch"]},
+      "lsp": {"classification": "native", "scope": "user"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.claude.json"}}
+    },
+    "codex": {
+      "display_name": "Codex CLI",
+      "executables": ["codex"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--codex"]},
+      "lsp": {"classification": "unavailable"},
+      "mcp": {"format": "toml", "root_key": "mcp_servers", "user_paths": {"all": "~/.codex/config.toml"}, "absolute_commands": true}
+    },
+    "copilot": {
+      "display_name": "GitHub Copilot CLI",
+      "executables": ["copilot"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--copilot"]},
+      "lsp": {"classification": "native", "scope": "user-or-project"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.copilot/mcp-config.json"}}
+    },
+    "gemini": {
+      "display_name": "Gemini CLI",
+      "executables": ["gemini"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--gemini"]},
+      "lsp": {"classification": "unavailable"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.gemini/settings.json"}}
+    },
+    "qwen": {
+      "display_name": "Qwen Code",
+      "executables": ["qwen"],
+      "rtk": {"mode": "guidance", "path": "~/.qwen/QWEN.md"},
+      "lsp": {"classification": "experimental", "scope": "project", "path": ".lsp.json", "required_flag": "--experimental-lsp"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.qwen/settings.json"}}
+    },
+    "kimi": {
+      "display_name": "Kimi CLI",
+      "executables": ["kimi"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--agent", "kimi"]},
+      "lsp": {"classification": "unavailable"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"current": "~/.kimi-code/mcp.json", "legacy": "~/.kimi/mcp.json"}}
+    },
+    "kilo": {
+      "display_name": "Kilo Code",
+      "executables": ["kilo"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--agent", "kilocode"]},
+      "lsp": {"classification": "native", "scope": "user-or-project"},
+      "mcp": {"format": "jsonc", "root_key": "mcp", "user_paths": {"windows": "%APPDATA%/kilo/kilo.jsonc", "macos": "~/.config/kilo/kilo.jsonc", "linux": "${XDG_CONFIG_HOME:-~/.config}/kilo/kilo.jsonc"}}
+    },
+    "kiro": {
+      "display_name": "Kiro CLI/IDE",
+      "executables": ["kiro-cli", "kiro"],
+      "rtk": {"mode": "guidance", "path": "~/.kiro/steering/token-efficient-routing.md"},
+      "lsp": {"classification": "native", "scope": "project", "path": ".kiro/settings/lsp.json"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.kiro/settings/mcp.json"}, "project_path": ".kiro/settings/mcp.json"}
+    },
+    "antigravity": {
+      "display_name": "Antigravity",
+      "executables": ["antigravity"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--agent", "antigravity"]},
+      "lsp": {"classification": "unavailable"},
+      "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.gemini/config/mcp_config.json"}, "project_path": ".agents/mcp_config.json"}
+    },
+    "vscode": {
+      "display_name": "Visual Studio Code",
+      "executables": ["code"],
+      "rtk": {"mode": "native", "args": ["init", "-g", "--copilot"]},
+      "lsp": {"classification": "editor", "scope": "editor"},
+      "mcp": {"format": "json", "root_key": "servers", "user_paths": {"windows": "%APPDATA%/Code/User/mcp.json", "macos": "~/Library/Application Support/Code/User/mcp.json", "linux": "${XDG_CONFIG_HOME:-~/.config}/Code/User/mcp.json"}, "project_path": ".vscode/mcp.json"}
+    }
+  }
+}

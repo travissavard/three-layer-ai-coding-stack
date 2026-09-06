@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "languages": {
+    "typescript": {
+      "display_name": "TypeScript/JavaScript",
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+      "markers": ["package.json", "tsconfig.json", "jsconfig.json"],
+      "server": "typescript-language-server",
+      "command": ["typescript-language-server", "--stdio"],
+      "installer": ["npm", "install", "--global", "typescript-language-server@6.0.0", "typescript@7.0.2"]
+    },
+    "python": {
+      "display_name": "Python",
+      "extensions": [".py", ".pyi"],
+      "markers": ["pyproject.toml", "requirements.txt", "setup.py"],
+      "server": "pyright",
+      "command": ["pyright-langserver", "--stdio"],
+      "installer": ["npm", "install", "--global", "pyright@1.1.413"]
+    },
+    "rust": {
+      "display_name": "Rust",
+      "extensions": [".rs"],
+      "markers": ["Cargo.toml"],
+      "server": "rust-analyzer",
+      "command": ["rust-analyzer"],
+      "installer": ["rustup", "component", "add", "rust-analyzer"]
+    },
+    "go": {
+      "display_name": "Go",
+      "extensions": [".go"],
+      "markers": ["go.mod", "go.work"],
+      "server": "gopls",
+      "command": ["gopls", "serve"],
+      "installer": ["go", "install", "golang.org/x/tools/gopls@v0.23.0"]
+    }
+  }
+}
