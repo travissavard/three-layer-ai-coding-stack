@@ -140,6 +140,13 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         "checks": [],
     }
 
+    class EvidenceTransport(ProcessJsonRpcTransport):
+        def _read_sync(self):
+            response = super()._read_sync()
+            if "error" in response:
+                report.setdefault("protocol_errors", []).append(response)
+            return response
+
     def save() -> None:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         rendered = json.dumps(report, indent=2)
@@ -227,6 +234,31 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
     sentinel.write_text("must survive install and restore\n", encoding="utf-8")
     sentinel_hash = hashlib.sha256(sentinel.read_bytes()).hexdigest()
     install_ids: list[str] = []
+    config_roots = [
+        context.home / name
+        for name in (
+            ".claude",
+            ".codex",
+            ".copilot",
+            ".gemini",
+            ".qwen",
+            ".kimi",
+            ".kiro",
+            ".config/kilo",
+        )
+    ]
+    config_roots.append(project)
+
+    def config_snapshot() -> dict[str, str]:
+        return {
+            str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for folder in config_roots
+            if folder.is_dir()
+            for path in folder.rglob("*")
+            if path.is_file() and ".git" not in path.relative_to(folder).parts
+        }
+
+    baseline_configs = config_snapshot()
 
     def apply() -> str:
         stdout = run([*prefix, *args])
@@ -252,6 +284,20 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         check("RTK actual commands", rtk_queries)
         check("reinstall", apply)
     if len(install_ids) == 2:
+
+        def conflict_restore() -> str:
+            target = context.home / ".qwen/QWEN.md"
+            original = target.read_bytes()
+            target.write_bytes(original + b"\nfixture user edit\n")
+            try:
+                before = config_snapshot()
+                run([*prefix, "--restore", install_ids[-1]], expected=5)
+                assert config_snapshot() == before, "refused restore changed client files"
+            finally:
+                target.write_bytes(original)
+            return "restore refused edited config; every client file remained unchanged"
+
+        check("restore conflict protection", conflict_restore)
         for operation_id in reversed(install_ids):
 
             def restore(operation_id=operation_id) -> str:
@@ -278,6 +324,14 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                 return f"{len(records)} owned file states match baseline; unrelated file preserved"
 
             check("restore " + operation_id, restore)
+
+        def complete_config_restore() -> str:
+            after = config_snapshot()
+            extra = sorted(set(after) - set(baseline_configs))
+            assert after == baseline_configs, f"client config tree differs; extra files: {extra}"
+            return "entire client config trees and project fixtures match baseline"
+
+        check("complete config tree restore", complete_config_restore)
 
     for language in languages:
         definition = manifest.languages["languages"][language]
@@ -322,7 +376,7 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                 raise ValueError("This harness currently exercises TypeScript, Python, and Go")
             document = folder / name
             document.write_text(content, encoding="utf-8")
-            rpc = ProcessJsonRpcTransport(command, framing="content-length", timeout=60)
+            rpc = EvidenceTransport(command, framing="content-length", timeout=60)
             try:
                 initialized = rpc.request(
                     "initialize",

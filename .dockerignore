@@ -1,0 +1,15 @@
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!src/**
+!config/
+!config/**
+!install.sh
+!scripts/
+!scripts/live_tools.py
+!scripts/live-tools.Dockerfile
+**/__pycache__/
+**/*.pyc

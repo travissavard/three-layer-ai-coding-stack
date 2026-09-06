@@ -420,6 +420,15 @@ def execute_plan(
                 latest_rtk_installer if plan.options.latest else rtk_installer
             )
             selected_rtk_installer(manifests, context, Path(toolchain.rtk_command))
+        if any(
+            action.kind == "rtk-native" and action.client is ClientId.CLAUDE
+            for action in plan.actions
+        ):
+            # RTK 0.48.0's native atomic writer does not create this directory.
+            # Snapshot owned files first so newly created files remain restorable.
+            context.resolve("${CLAUDE_CONFIG_DIR:-~/.claude}").mkdir(
+                parents=True, exist_ok=True,
+            )
         _rtk_preflight(plan, command_runner, toolchain.rtk_command)
         _configure_guidance(plan, adapters)
         _install_languages(plan, manifests, command_runner, which)

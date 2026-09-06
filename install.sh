@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Keep LF line endings: this launcher also runs from Windows checkouts in Docker/WSL.
 set -euo pipefail
 
 uv_version="0.12.10"

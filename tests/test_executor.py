@@ -120,6 +120,30 @@ def test_apply_configures_claude_and_records_restorable_operation(tmp_path: Path
     assert ("rtk", "init", "-g", "--auto-patch") in commands
 
 
+def test_fresh_claude_config_directory_exists_before_native_rtk_write(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+    target = tmp_path / ".claude" / "RTK.md"
+
+    def native_write(
+        call: tuple[str, ...], _environment: Mapping[str, str] | None, _cwd: Path | None,
+    ) -> None:
+        if call == ("rtk", "init", "-g", "--auto-patch"):
+            # RTK 0.48.0's atomic writer requires an already-existing parent directory.
+            target.write_text("rtk fixture\n", encoding="utf-8")
+
+    report = execute_plan(
+        _plan(["--client", "claude", "--jmunch-use", "skip"], ClientId.CLAUDE),
+        load_manifests(), context, runner=RecordingRunner(on_call=native_write),
+        which=lambda name: f"C:/tools/{name}.exe",
+    )
+    assert target.read_text(encoding="utf-8") == "rtk fixture\n"
+    assert report.operation_id is not None
+    from three_layer_installer.backup import BackupManager
+
+    BackupManager(context.state_root).restore(report.operation_id)
+    assert not target.exists()
+
+
 def test_codex_installs_jmunch_into_isolated_uv_tool_directories(tmp_path: Path) -> None:
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")

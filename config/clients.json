@@ -100,7 +100,7 @@
       "rtk": {
         "mode": "native",
         "scope": "user",
-        "args": ["init", "-g", "--gemini"],
+        "args": ["init", "-g", "--gemini", "--auto-patch"],
         "owned_paths": {
           "all": [
             "~/.gemini/hooks/rtk-hook-gemini.sh",
