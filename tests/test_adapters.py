@@ -56,6 +56,23 @@ def test_standard_json_client_receives_three_pinned_servers_and_telemetry_off(
     assert parsed["mcpServers"]["jcodemunch"]["env"] == JMUNCH_ENV
 
 
+def test_latest_adapter_uses_unpinned_jmunch_package(windows_context: PathContext) -> None:
+    adapter = adapter_for(
+        ClientId.CLAUDE,
+        load_manifests(),
+        windows_context,
+        latest=True,
+    )
+
+    parsed = json.loads(adapter.render_mcp("{}\n"))
+
+    assert parsed["mcpServers"]["jcodemunch"]["args"] == [
+        "--from",
+        "jcodemunch-mcp",
+        "jcodemunch-mcp",
+    ]
+
+
 def test_kilo_uses_local_jsonc_command_array(windows_context: PathContext) -> None:
     adapter = adapter_for(ClientId.KILO, load_manifests(), windows_context)
 

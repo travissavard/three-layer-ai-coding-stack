@@ -9,7 +9,9 @@ temp_root="$(mktemp -d "${TMPDIR:-/tmp}/three-layer-installer.XXXXXXXX")"
 cleanup() {
   rm -rf -- "${temp_root}"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 export UV_CACHE_DIR="${temp_root}/cache"
 export UV_PYTHON_INSTALL_DIR="${temp_root}/python"
@@ -78,4 +80,4 @@ else
   THREE_LAYER_BOOTSTRAP_UV_DIR="$(dirname -- "${uv_command}")"
 fi
 
-"${uv_command}" run --frozen --project "${script_dir}" python -m three_layer_installer "$@"
+"${uv_command}" run --frozen --no-dev --project "${script_dir}" python -m three_layer_installer "$@"

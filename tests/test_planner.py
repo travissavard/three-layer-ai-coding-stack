@@ -7,14 +7,19 @@ from three_layer_installer.planner import build_plan
 
 PROJECT_RTK_CLIENTS = {
     ClientId.KIMI: ("init", "--agent", "kimi"),
-    ClientId.KILO: ("init", "--agent", "kilocode"),
+    ClientId.KILO: (),
     ClientId.ANTIGRAVITY: ("init", "--agent", "antigravity"),
 }
 
 
 def _detected(*clients: ClientId) -> dict[ClientId, Detection]:
     return {
-        client: Detection(client=client, detected=client in clients, executable=None)
+        client: Detection(
+            client=client,
+            detected=client in clients,
+            executable=Path(f"/usr/bin/{client.value}") if client in clients else None,
+            version="999.0.0" if client in clients else None,
+        )
         for client in ClientId
     }
 
@@ -53,6 +58,68 @@ def test_qwen_without_project_does_not_claim_lsp_active() -> None:
     assert "--project" in result.message
 
 
+def test_old_client_version_is_not_given_lsp_configuration(tmp_path: Path) -> None:
+    detections = _detected(ClientId.QWEN)
+    detections[ClientId.QWEN] = Detection(
+        ClientId.QWEN,
+        True,
+        Path("/usr/bin/qwen"),
+        version="0.8.2",
+    )
+    plan = build_plan(
+        parse_args(
+            [
+                "--client",
+                "qwen",
+                "--project",
+                str(tmp_path),
+                "--languages",
+                "python",
+                "--jmunch-use",
+                "skip",
+            ]
+        ),
+        load_manifests(),
+        detections,
+    )
+
+    lsp = next(item for item in plan.results if item.layer is Layer.LSP)
+    assert lsp.status is Status.SKIPPED
+    assert "requires Qwen Code 0.9.0 or newer" in lsp.message
+    assert not any(action.layer is Layer.LSP for action in plan.actions)
+
+
+def test_unknown_client_version_fails_closed_for_lsp(tmp_path: Path) -> None:
+    detections = _detected(ClientId.QWEN)
+    detections[ClientId.QWEN] = Detection(
+        ClientId.QWEN,
+        True,
+        Path("/usr/bin/qwen"),
+        version=None,
+    )
+    plan = build_plan(
+        parse_args(
+            [
+                "--client",
+                "qwen",
+                "--project",
+                str(tmp_path),
+                "--languages",
+                "python",
+                "--jmunch-use",
+                "skip",
+            ]
+        ),
+        load_manifests(),
+        detections,
+    )
+
+    lsp = next(item for item in plan.results if item.layer is Layer.LSP)
+    assert lsp.status is Status.SKIPPED
+    assert "version could not be verified" in lsp.message
+    assert not any(action.layer is Layer.LSP for action in plan.actions)
+
+
 def test_jmunch_is_one_layer_with_three_component_actions() -> None:
     plan = build_plan(
         parse_args(
@@ -75,6 +142,31 @@ def test_jmunch_is_one_layer_with_three_component_actions() -> None:
         "jdatamunch",
     }
     assert sum(result.layer is Layer.JMUNCH for result in plan.results) == 1
+
+
+def test_latest_plan_explicitly_removes_jmunch_package_pins() -> None:
+    plan = build_plan(
+        parse_args(
+            [
+                "--client",
+                "claude",
+                "--jmunch-use",
+                "noncommercial",
+                "--latest",
+                "--dry-run",
+            ]
+        ),
+        load_manifests(),
+        _detected(ClientId.CLAUDE),
+    )
+
+    actions = [action for action in plan.actions if action.layer is Layer.JMUNCH]
+    assert actions[0].argv == (
+        "uvx",
+        "--from",
+        "jcodemunch-mcp",
+        "jcodemunch-mcp",
+    )
 
 
 def test_project_auto_languages_are_included_in_plan(tmp_path: Path) -> None:

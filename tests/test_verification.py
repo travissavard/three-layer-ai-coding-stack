@@ -1,6 +1,10 @@
+import sys
 from typing import Any
 
+import pytest
+
 from three_layer_installer.verification import (
+    ProcessJsonRpcTransport,
     ProtocolCheck,
     verify_lsp_transport,
     verify_mcp_transport,
@@ -13,7 +17,7 @@ class FakeTransport:
         self.requests: list[str] = []
         self.notifications: list[str] = []
 
-    def request(self, method: str, params: dict[str, object]) -> dict[str, Any]:
+    def request(self, method: str, params: dict[str, object]) -> Any:
         del params
         self.requests.append(method)
         value = self.responses[method]
@@ -121,5 +125,72 @@ def test_lsp_verification_surfaces_protocol_failure_and_closes_transport() -> No
     )
 
     assert result.ok is False
-    assert "fixture protocol error" in result.message
+    assert "RuntimeError" in result.message
+    assert "fixture protocol error" not in result.message
     assert transport.notifications[-1] == "closed"
+
+
+@pytest.mark.parametrize("framing", ["line", "content-length"])
+def test_real_stdio_transport_frames_messages_and_passes_environment(framing: str) -> None:
+    server = r"""
+import json, os, sys
+framing = sys.argv[1]
+if framing == 'line':
+    request = json.loads(sys.stdin.buffer.readline())
+else:
+    length = int(sys.stdin.buffer.readline().split(b':')[1])
+    sys.stdin.buffer.readline()
+    request = json.loads(sys.stdin.buffer.read(length))
+body = json.dumps({'jsonrpc': '2.0', 'id': request['id'],
+                   'result': os.environ['TRANSPORT_FIXTURE']}).encode()
+payload = body + b'\n' if framing == 'line' else (
+    ('Content-Length: %d\r\n\r\n' % len(body)).encode() + body)
+sys.stdout.buffer.write(payload)
+sys.stdout.buffer.flush()
+sys.stdin.buffer.read()
+"""
+    transport = ProcessJsonRpcTransport(
+        (sys.executable, "-u", "-c", server, framing),
+        framing=framing,
+        environment={"TRANSPORT_FIXTURE": "fixture-value"},
+    )
+    try:
+        assert transport.request("fixture", {}) == "fixture-value"
+        transport.notify("exit", {})
+    finally:
+        transport.close()
+    assert transport.process.poll() is not None
+
+
+def test_real_stdio_transport_times_out_and_reaps_server() -> None:
+    transport = ProcessJsonRpcTransport(
+        (sys.executable, "-c", "import time; time.sleep(5)"),
+        framing="line",
+        timeout=0.1,
+    )
+    try:
+        with pytest.raises(RuntimeError, match="timed out"):
+            transport.request("fixture", {})
+    finally:
+        transport.close()
+    assert transport.process.poll() is not None
+
+
+@pytest.mark.parametrize("payload", ["[]", '{"id":1,"error":"fixture-secret"}'])
+def test_real_stdio_transport_rejects_bad_response_without_echoing_contents(payload: str) -> None:
+    transport = ProcessJsonRpcTransport(
+        (
+            sys.executable,
+            "-u",
+            "-c",
+            "import sys; sys.stdin.readline(); print(sys.argv[1])",
+            payload,
+        ),
+        framing="line",
+    )
+    try:
+        with pytest.raises(RuntimeError) as error:
+            transport.request("fixture", {})
+        assert "fixture-secret" not in str(error.value)
+    finally:
+        transport.close()

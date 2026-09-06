@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import platform
+import re
 import shutil
 import stat
 import tarfile
@@ -21,6 +23,8 @@ from .paths import PathContext, PlatformKind
 
 _MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
 _MAX_BINARY_BYTES = 100 * 1024 * 1024
+_MAX_RELEASE_METADATA_BYTES = 5 * 1024 * 1024
+_LATEST_RTK_API = "https://api.github.com/repos/rtk-ai/rtk/releases/latest"
 
 
 class ToolBootstrapError(RuntimeError):
@@ -45,6 +49,7 @@ def resolve_toolchain(
     context: PathContext,
     *,
     which: Callable[[str], str | None] = shutil.which,
+    latest_rtk: bool = False,
 ) -> Toolchain:
     """Resolve system tools, previous managed tools, and launcher-provided uv."""
 
@@ -55,7 +60,11 @@ def resolve_toolchain(
     managed_targets: list[Path] = []
     bootstrap_sources: list[tuple[Path, Path]] = []
 
-    if which("rtk"):
+    if latest_rtk:
+        rtk_command = str(rtk_target.resolve())
+        rtk_install_required = True
+        managed_targets.append(rtk_target)
+    elif which("rtk"):
         rtk_command = "rtk"
         rtk_install_required = False
     elif rtk_target.is_file():
@@ -132,6 +141,33 @@ def _download(url: str, destination: Path) -> None:
         raise ToolBootstrapError(f"RTK download failed: {type(exc).__name__}") from exc
 
 
+def _fetch_latest_release(url: str) -> dict[str, object]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "three-layer-installer/0.1",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read(_MAX_RELEASE_METADATA_BYTES + 1)
+    except OSError as exc:
+        raise ToolBootstrapError(
+            f"latest RTK release lookup failed: {type(exc).__name__}"
+        ) from exc
+    if len(payload) > _MAX_RELEASE_METADATA_BYTES:
+        raise ToolBootstrapError("latest RTK release metadata exceeds the safety size limit")
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ToolBootstrapError("latest RTK release metadata is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise ToolBootstrapError("latest RTK release metadata is not an object")
+    return value
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -194,6 +230,33 @@ def _binary_from_tar(archive_path: Path, executable_name: str) -> bytes:
         raise ToolBootstrapError("RTK release is not a valid tar archive") from exc
 
 
+def _install_rtk_archive(
+    url: str,
+    name: str,
+    expected: str,
+    context: PathContext,
+    destination: Path,
+    fetch: Callable[[str, Path], None],
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="three-layer-rtk-") as temporary:
+        archive_path = Path(temporary) / name
+        fetch(url, archive_path)
+        if not archive_path.is_file():
+            raise ToolBootstrapError("RTK download did not produce an archive")
+        actual = _sha256(archive_path)
+        if actual.lower() != expected.lower():
+            raise ToolBootstrapError(
+                f"RTK archive checksum mismatch; expected {expected}, received {actual}"
+            )
+        executable_name = _executable_name("rtk", context)
+        binary = (
+            _binary_from_zip(archive_path, executable_name)
+            if name.endswith(".zip")
+            else _binary_from_tar(archive_path, executable_name)
+        )
+        atomic_write(destination, binary, mode=0o755)
+
+
 def install_verified_rtk(
     manifests: ManifestSet,
     context: PathContext,
@@ -225,20 +288,64 @@ def install_verified_rtk(
     ):
         raise ToolBootstrapError("RTK bootstrap metadata is invalid")
 
-    with tempfile.TemporaryDirectory(prefix="three-layer-rtk-") as temporary:
-        archive_path = Path(temporary) / name
-        fetch(f"{base_url.rstrip('/')}/{name}", archive_path)
-        if not archive_path.is_file():
-            raise ToolBootstrapError("RTK download did not produce an archive")
-        actual = _sha256(archive_path)
-        if actual.lower() != expected.lower():
-            raise ToolBootstrapError(
-                f"RTK archive checksum mismatch; expected {expected}, received {actual}"
-            )
-        executable_name = _executable_name("rtk", context)
-        binary = (
-            _binary_from_zip(archive_path, executable_name)
-            if name.endswith(".zip")
-            else _binary_from_tar(archive_path, executable_name)
+    _install_rtk_archive(
+        f"{base_url.rstrip('/')}/{name}",
+        name,
+        expected,
+        context,
+        destination,
+        fetch,
+    )
+
+
+def install_latest_rtk(
+    manifests: ManifestSet,
+    context: PathContext,
+    destination: Path,
+    *,
+    machine: str | None = None,
+    fetch: Callable[[str, Path], None] = _download,
+    release_fetch: Callable[[str], dict[str, object]] = _fetch_latest_release,
+) -> None:
+    """Install the current RTK release only when GitHub supplies a SHA-256 digest."""
+
+    del manifests
+    asset_names = {
+        "windows-x86_64": "rtk-x86_64-pc-windows-msvc.zip",
+        "windows-arm64": "rtk-aarch64-pc-windows-msvc.zip",
+        "macos-x86_64": "rtk-x86_64-apple-darwin.tar.gz",
+        "macos-arm64": "rtk-aarch64-apple-darwin.tar.gz",
+        "linux-x86_64": "rtk-x86_64-unknown-linux-musl.tar.gz",
+        "linux-arm64": "rtk-aarch64-unknown-linux-gnu.tar.gz",
+    }
+    key = _asset_key(context, machine or platform.machine())
+    name = asset_names[key]
+    release = release_fetch(_LATEST_RTK_API)
+    tag = release.get("tag_name")
+    assets = release.get("assets")
+    if not isinstance(tag, str) or not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        raise ToolBootstrapError("latest RTK release has an invalid tag")
+    if not isinstance(assets, list):
+        raise ToolBootstrapError("latest RTK release has no asset list")
+    matches = [
+        asset
+        for asset in assets
+        if isinstance(asset, dict) and asset.get("name") == name
+    ]
+    if len(matches) != 1:
+        raise ToolBootstrapError(f"latest RTK release has no unique asset for {key}")
+    asset = matches[0]
+    digest = asset.get("digest")
+    url = asset.get("browser_download_url")
+    expected_prefix = f"https://github.com/rtk-ai/rtk/releases/download/{tag}/"
+    if (
+        not isinstance(digest, str)
+        or re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest) is None
+        or not isinstance(url, str)
+        or not url.startswith(expected_prefix)
+        or not url.endswith(f"/{name}")
+    ):
+        raise ToolBootstrapError(
+            "latest RTK asset lacks a verified SHA-256 digest or trusted download URL"
         )
-        atomic_write(destination, binary, mode=0o755)
+    _install_rtk_archive(url, name, digest.removeprefix("sha256:"), context, destination, fetch)

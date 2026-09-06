@@ -10,6 +10,7 @@ from three_layer_installer.manifests import load_manifests
 from three_layer_installer.paths import PathContext, PlatformKind
 from three_layer_installer.tooling import (
     ToolBootstrapError,
+    install_latest_rtk,
     install_verified_rtk,
     materialize_bootstrap_uv,
     resolve_toolchain,
@@ -35,6 +36,19 @@ def test_system_tools_are_reused_without_managed_targets(tmp_path: Path) -> None
     assert toolchain.uvx_command == "uvx"
     assert toolchain.managed_targets == ()
     assert toolchain.rtk_install_required is False
+
+
+def test_latest_rtk_uses_managed_target_even_when_system_rtk_exists(tmp_path: Path) -> None:
+    context = _windows_context(tmp_path)
+
+    toolchain = resolve_toolchain(
+        context,
+        which=lambda name: f"C:/tools/{name}.exe",
+        latest_rtk=True,
+    )
+
+    assert toolchain.rtk_command == str((context.state_root / "bin" / "rtk.exe").resolve())
+    assert toolchain.rtk_install_required is True
 
 
 def test_verified_launcher_uv_is_copied_to_managed_bin(tmp_path: Path) -> None:
@@ -110,3 +124,66 @@ def test_rtk_checksum_mismatch_never_creates_destination(tmp_path: Path) -> None
         )
 
     assert destination.exists() is False
+
+
+def test_latest_rtk_requires_and_verifies_github_asset_digest(tmp_path: Path) -> None:
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("release/rtk.exe", b"latest-rtk")
+    archive_bytes = archive_buffer.getvalue()
+    digest = hashlib.sha256(archive_bytes).hexdigest()
+    asset_name = "rtk-x86_64-pc-windows-msvc.zip"
+    asset_url = f"https://github.com/rtk-ai/rtk/releases/download/v9.8.7/{asset_name}"
+    destination = tmp_path / "managed" / "rtk.exe"
+
+    def release_fetch(_url: str) -> dict[str, object]:
+        return {
+            "tag_name": "v9.8.7",
+            "assets": [
+                {
+                    "name": asset_name,
+                    "digest": f"sha256:{digest}",
+                    "browser_download_url": asset_url,
+                }
+            ],
+        }
+
+    def fetch(url: str, target: Path) -> None:
+        assert url == asset_url
+        target.write_bytes(archive_bytes)
+
+    install_latest_rtk(
+        load_manifests(),
+        _windows_context(tmp_path),
+        destination,
+        machine="AMD64",
+        fetch=fetch,
+        release_fetch=release_fetch,
+    )
+
+    assert destination.read_bytes() == b"latest-rtk"
+
+
+def test_latest_rtk_fails_closed_when_github_digest_is_absent(tmp_path: Path) -> None:
+    asset_name = "rtk-x86_64-pc-windows-msvc.zip"
+
+    with pytest.raises(ToolBootstrapError, match="verified SHA-256 digest"):
+        install_latest_rtk(
+            load_manifests(),
+            _windows_context(tmp_path),
+            tmp_path / "managed" / "rtk.exe",
+            machine="AMD64",
+            release_fetch=lambda _url: {
+                "tag_name": "v9.8.7",
+                "assets": [
+                    {
+                        "name": asset_name,
+                        "digest": None,
+                        "browser_download_url": (
+                            "https://github.com/rtk-ai/rtk/releases/download/"
+                            f"v9.8.7/{asset_name}"
+                        ),
+                    }
+                ],
+            },
+        )

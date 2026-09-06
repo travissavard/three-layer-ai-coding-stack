@@ -9,6 +9,10 @@ $UvVersion = '0.12.10'
 $UvBaseUrl = "https://github.com/astral-sh/uv/releases/download/$UvVersion"
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("three-layer-installer-" + [guid]::NewGuid())
 $ExitCode = 1
+$SavedEnvironment = @{}
+foreach ($VariableName in @('UV_CACHE_DIR', 'UV_PYTHON_INSTALL_DIR', 'UV_PROJECT_ENVIRONMENT', 'THREE_LAYER_BOOTSTRAP_UV_DIR')) {
+    $SavedEnvironment[$VariableName] = [Environment]::GetEnvironmentVariable($VariableName, 'Process')
+}
 
 New-Item -ItemType Directory -Path $TempRoot | Out-Null
 
@@ -45,10 +49,13 @@ try {
         $env:THREE_LAYER_BOOTSTRAP_UV_DIR = Split-Path -Parent $UvCommand
     }
 
-    & $UvCommand run --frozen --project $PSScriptRoot python -m three_layer_installer @InstallerArgs
+    & $UvCommand run --frozen --no-dev --project $PSScriptRoot python -m three_layer_installer @InstallerArgs
     $ExitCode = $LASTEXITCODE
 }
 finally {
+    foreach ($VariableName in $SavedEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($VariableName, $SavedEnvironment[$VariableName], 'Process')
+    }
     if (Test-Path -LiteralPath $TempRoot) {
         Remove-Item -LiteralPath $TempRoot -Recurse -Force
     }

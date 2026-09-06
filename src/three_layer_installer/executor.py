@@ -18,6 +18,7 @@ from .models import ClientId, InstallPlan, Layer, LayerResult
 from .paths import PathContext
 from .tooling import (
     Toolchain,
+    install_latest_rtk,
     install_verified_rtk,
     materialize_bootstrap_uv,
     resolve_toolchain,
@@ -64,7 +65,7 @@ class SubprocessRunner:
             process_environment.update(environment)
         try:
             completed = subprocess.run(
-                list(argv),
+                [shutil.which(argv[0]) or argv[0], *argv[1:]],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -133,12 +134,19 @@ def _guidance_target(adapter: ClientAdapter) -> Path | None:
     if not isinstance(rtk, dict) or rtk.get("mode") != "guidance":
         return None
     value = rtk.get("path")
-    return adapter.context.resolve(value).resolve() if isinstance(value, str) else None
+    if not isinstance(value, str):
+        return None
+    path = adapter.context.resolve(value)
+    if not path.is_absolute():
+        if adapter.project is None:
+            return None
+        path = adapter.project / path
+    return path.resolve()
 
 
 def _codex_jmunch_prefix(adapter: ClientAdapter, component: str) -> Path:
     tool = adapter.manifests.versions["tools"][component]
-    version = str(tool["version"])
+    version = "latest" if adapter.latest else str(tool["version"])
     return (
         adapter.context.state_root
         / "tools"
@@ -153,7 +161,14 @@ def _target_paths(
     adapters: dict[ClientId, ClientAdapter],
     toolchain: Toolchain,
 ) -> tuple[Path, ...]:
-    paths: list[Path] = list(toolchain.managed_targets)
+    paths: list[Path] = []
+    if (
+        any(action.layer is Layer.RTK for action in plan.actions)
+        and toolchain.rtk_install_required
+    ):
+        paths.append(Path(toolchain.rtk_command))
+    if any(action.layer is Layer.JMUNCH for action in plan.actions):
+        paths.extend(destination for _source, destination in toolchain.bootstrap_uv_sources)
     for client_id in plan.selected_clients:
         adapter = adapters[client_id]
         client_actions = [action for action in plan.actions if action.client is client_id]
@@ -162,13 +177,25 @@ def _target_paths(
             if client_id is ClientId.CODEX:
                 for component in ("jcodemunch", "jdocmunch", "jdatamunch"):
                     prefix = _codex_jmunch_prefix(adapter, component)
-                    if not prefix.exists():
+                    if adapter.latest and prefix.exists():
+                        paths.append(prefix)
+                    elif not prefix.exists():
                         component_root = prefix.parent
                         paths.append(component_root if not component_root.exists() else prefix)
         if any(action.layer is Layer.LSP for action in client_actions) and adapter.lsp_target:
             paths.append(adapter.lsp_target)
+        if client_id is ClientId.CLAUDE and any(
+            action.layer is Layer.LSP for action in client_actions
+        ):
+            for template in (
+                "${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json",
+                "${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/installed_plugins.json",
+            ):
+                paths.append(adapter.context.resolve(template))
         guidance = _guidance_target(adapter)
-        if guidance is not None:
+        if guidance is not None and any(
+            action.kind == "rtk-guidance" for action in client_actions
+        ):
             paths.append(guidance)
         for action in client_actions:
             if action.kind != "rtk-native":
@@ -223,9 +250,10 @@ def _install_languages(
     for language in selected:
         definition = manifests.languages["languages"][language]
         executable = definition["command"][0]
-        if which(executable):
+        if which(executable) and not plan.options.latest:
             continue
-        installer = tuple(definition["installer"])
+        installer_key = "latest_installer" if plan.options.latest else "installer"
+        installer = tuple(definition[installer_key])
         runtime = installer[0]
         if which(runtime) is None:
             raise ExecutionError(
@@ -241,26 +269,37 @@ def _configure_lsp(
     runner: CommandRunner,
 ) -> None:
     for client_id in plan.selected_clients:
-        if not any(
-            action.client is client_id and action.layer is Layer.LSP for action in plan.actions
-        ):
+        languages = tuple(
+            action.component
+            for action in plan.actions
+            if action.client is client_id
+            and action.layer is Layer.LSP
+            and action.component is not None
+        )
+        if not languages:
             continue
         adapter = adapters[client_id]
         target = adapter.lsp_target
         if target is not None:
-            rendered = adapter.render_lsp(_read_text(target), plan.languages)
+            rendered = adapter.render_lsp(_read_text(target), languages)
             if rendered is not None:
                 _write_text(target, rendered)
-        for command in adapter.lsp_commands(plan.languages):
+        for command in adapter.lsp_commands(languages):
             _run_required(runner, command, f"Claude LSP plugin setup for {command[3]}", timeout=300)
 
 
-def _configure_guidance(adapters: dict[ClientId, ClientAdapter]) -> None:
+def _configure_guidance(
+    plan: InstallPlan, adapters: dict[ClientId, ClientAdapter]
+) -> None:
     content = (
         "Prefix supported shell commands with `rtk` to compact tool output before it enters "
         "the agent context. Use raw output when compression hides required detail."
     )
-    for adapter in adapters.values():
+    clients = {
+        action.client for action in plan.actions if action.kind == "rtk-guidance"
+    }
+    for client_id in clients:
+        adapter = adapters[client_id]
         target = _guidance_target(adapter)
         if target is None:
             continue
@@ -277,19 +316,30 @@ def _install_codex_jmunch(
         tool = manifests.versions["tools"][component]
         prefix = _codex_jmunch_prefix(adapter, component)
         executable = Path(str(adapter.jmunch_entries()[component]["command"]))
-        if executable.is_file():
+        if executable.is_file() and not adapter.latest:
             continue
-        if prefix.exists():
+        if prefix.exists() and not adapter.latest:
             raise ExecutionError(
                 f"incomplete managed {component} directory exists; restore or remove {prefix}"
             )
         environment = {
             "UV_TOOL_DIR": str(prefix / "tools"),
             "UV_TOOL_BIN_DIR": str(prefix / "bin"),
+            "UV_PYTHON_INSTALL_DIR": str(prefix / "python"),
+            "UV_PYTHON_PREFERENCE": "only-managed",
         }
+        package_spec = (
+            str(tool["package"])
+            if adapter.latest
+            else f"{tool['package']}=={tool['version']}"
+        )
+        install_command = [uv_command, "tool", "install"]
+        if adapter.latest:
+            install_command.append("--upgrade")
+        install_command.append(package_spec)
         _run_required(
             runner,
-            (uv_command, "tool", "install", f"{tool['package']}=={tool['version']}"),
+            tuple(install_command),
             f"isolated {component} installation",
             environment=environment,
             timeout=300,
@@ -331,11 +381,18 @@ def execute_plan(
     runner: CommandRunner | None = None,
     which: Callable[[str], str | None] = shutil.which,
     rtk_installer: Callable[[ManifestSet, PathContext, Path], None] = install_verified_rtk,
+    latest_rtk_installer: Callable[
+        [ManifestSet, PathContext, Path], None
+    ] = install_latest_rtk,
 ) -> ExecutionReport:
     if plan.options.dry_run:
         raise ExecutionError("a dry-run plan cannot be executed")
     command_runner = runner or SubprocessRunner()
-    toolchain = resolve_toolchain(context, which=which)
+    toolchain = resolve_toolchain(
+        context,
+        which=which,
+        latest_rtk=plan.options.latest,
+    )
     adapters = {
         client: adapter_for(
             client,
@@ -343,6 +400,7 @@ def execute_plan(
             context,
             plan.options.project,
             toolchain.uvx_command or "uvx",
+            plan.options.latest,
         )
         for client in plan.selected_clients
     }
@@ -350,21 +408,31 @@ def execute_plan(
     paths = _target_paths(plan, adapters, toolchain)
     operation: BackupOperation | None = None
     manager = BackupManager(context.state_root)
-    if paths:
-        operation = manager.begin(paths, plan.options.jmunch_use)
     try:
-        materialize_bootstrap_uv(toolchain)
-        if toolchain.rtk_install_required:
-            rtk_installer(manifests, context, Path(toolchain.rtk_command))
+        if paths:
+            operation = manager.begin(paths, plan.options.jmunch_use)
+        needs_rtk = any(action.layer is Layer.RTK for action in plan.actions)
+        needs_jmunch = any(action.layer is Layer.JMUNCH for action in plan.actions)
+        if needs_jmunch:
+            materialize_bootstrap_uv(toolchain)
+        if needs_rtk and toolchain.rtk_install_required:
+            selected_rtk_installer = (
+                latest_rtk_installer if plan.options.latest else rtk_installer
+            )
+            selected_rtk_installer(manifests, context, Path(toolchain.rtk_command))
         _rtk_preflight(plan, command_runner, toolchain.rtk_command)
-        _configure_guidance(adapters)
+        _configure_guidance(plan, adapters)
         _install_languages(plan, manifests, command_runner, which)
         _configure_lsp(plan, adapters, command_runner)
         _configure_jmunch(plan, manifests, adapters, command_runner, toolchain)
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt) as exc:
         if operation is not None:
             manager.finalize(operation)
-        message = str(exc) or type(exc).__name__
+        message = (
+            "installation interrupted"
+            if isinstance(exc, KeyboardInterrupt)
+            else str(exc) or type(exc).__name__
+        )
         raise ExecutionError(
             message,
             operation.operation_id if operation is not None else None,

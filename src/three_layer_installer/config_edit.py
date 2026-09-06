@@ -184,6 +184,31 @@ def _parse_jsonc(text: str) -> _Node:
         raise ConfigError("invalid JSONC: unexpected end of document") from exc
 
 
+def read_config(text: str, format_name: str = "jsonc") -> dict[str, object]:
+    """Parse configuration for verification without exposing its contents in errors."""
+    try:
+        if format_name == "toml":
+            value = tomlkit.parse(text).unwrap()
+        else:
+            _parse_jsonc(text)
+            tokens = _tokens(text)
+            compact = "".join(
+                token.text
+                for index, token in enumerate(tokens)
+                if not (
+                    token.kind == ","
+                    and index + 1 < len(tokens)
+                    and tokens[index + 1].kind in {"}", "]"}
+                )
+            )
+            value = json.loads(compact)
+        if not isinstance(value, dict):
+            raise ValueError("root must be an object")
+        return value
+    except (ValueError, tomlkit.exceptions.ParseError) as exc:
+        raise ConfigError("configuration could not be parsed") from exc
+
+
 def _line_indent(text: str, position: int) -> str:
     start = text.rfind("\n", 0, position) + 1
     prefix = text[start:position]

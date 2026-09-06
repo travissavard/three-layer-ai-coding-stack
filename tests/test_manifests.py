@@ -1,3 +1,5 @@
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -68,6 +70,64 @@ def test_indexes_are_backing_stores_not_layers() -> None:
 
     assert len(layers) == 3
     assert not any("index" in layer["name"].lower() for layer in layers)
+
+
+def test_every_client_integration_has_dated_primary_sources() -> None:
+    clients = load_manifests().clients["clients"]
+
+    for client, definition in clients.items():
+        assert definition["verified_on"] == "2026-09-06", client
+        assert set(definition["sources"]) == {"rtk", "lsp", "mcp"}, client
+        assert all(
+            source.startswith("https://") for source in definition["sources"].values()
+        ), client
+
+
+def test_native_lsp_clients_have_documented_minimum_version_gates() -> None:
+    clients = load_manifests().clients["clients"]
+    expected = {
+        "claude": "2.0.74",
+        "copilot": "0.0.405",
+        "qwen": "0.9.0",
+        "kilo": "1.0.0",
+        "kiro": "1.22.0",
+    }
+
+    for client, minimum in expected.items():
+        assert clients[client]["version_probe"] == ["--version"]
+        assert clients[client]["lsp"]["minimum_version"] == minimum
+        assert clients[client]["lsp"]["version_source"].startswith("https://")
+
+
+def test_manifest_validation_rejects_missing_lsp_version_gate() -> None:
+    manifests = load_manifests()
+    clients = deepcopy(manifests.clients)
+    del clients["clients"]["claude"]["lsp"]["minimum_version"]
+
+    errors = validate_manifests(replace(manifests, clients=clients))
+
+    assert "claude native LSP is missing a minimum_version" in errors
+
+
+def test_manifest_validation_rejects_unknown_language_version_component() -> None:
+    manifests = load_manifests()
+    languages = deepcopy(manifests.languages)
+    languages["languages"]["python"]["version_components"] = ["not-a-tool"]
+
+    errors = validate_manifests(replace(manifests, languages=languages))
+
+    assert "python references unknown version component: not-a-tool" in errors
+
+
+def test_jcodemunch_license_identifier_matches_published_package_metadata() -> None:
+    manifests = load_manifests()
+    records = {item["id"]: item for item in manifests.licenses["components"]}
+
+    assert manifests.versions["tools"]["jcodemunch"]["license_id"] == (
+        "LicenseRef-jCodeMunch-Dual-Use-1"
+    )
+    assert records["jcodemunch"]["license"] == "LicenseRef-jCodeMunch-Dual-Use-1"
+    assert records["jcodemunch"]["license_version"] == "1.1"
 
 
 def test_missing_manifest_has_actionable_error(tmp_path: Path) -> None:

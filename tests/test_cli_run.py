@@ -4,7 +4,14 @@ from pathlib import Path
 from three_layer_installer.backup import BackupManager, atomic_write
 from three_layer_installer.cli import run
 from three_layer_installer.executor import CommandResult
-from three_layer_installer.models import JMunchUse
+from three_layer_installer.models import (
+    ClientId,
+    InstallPlan,
+    JMunchUse,
+    Layer,
+    LayerResult,
+    Status,
+)
 from three_layer_installer.paths import PathContext, PlatformKind
 
 
@@ -91,12 +98,49 @@ def test_interactive_apply_combines_declaration_with_final_confirmation(tmp_path
         context=_context(tmp_path),
         runner=SuccessfulRunner(),
         which=lambda name: f"C:/tools/{name}.exe",
+        stack_verifier=lambda plan, *_args, **_kwargs: plan.results,
     )
 
     assert exit_code == 0
     assert "noncommercial" in prompts[1]
     assert (tmp_path / ".claude.json").is_file()
     assert "does not grant" in "\n".join(output)
+
+
+def test_apply_runs_post_install_verification_and_returns_failure_status(
+    tmp_path: Path,
+) -> None:
+    output: list[str] = []
+    calls: list[str] = []
+
+    def verify(
+        plan: InstallPlan, _manifests: object, _context: object, **_kwargs: object
+    ) -> tuple[LayerResult, ...]:
+        calls.append("verify")
+        return (
+            LayerResult(
+                ClientId.CLAUDE,
+                Layer.RTK,
+                Status.FAILED,
+                "fixture verification failure",
+            ),
+            *(result for result in plan.results if result.layer is not Layer.RTK),
+        )
+
+    exit_code = run(
+        ["--client", "claude", "--jmunch-use", "skip", "--yes"],
+        output=output.append,
+        context=_context(tmp_path),
+        runner=SuccessfulRunner(),
+        which=lambda name: f"C:/tools/{name}.exe",
+        stack_verifier=verify,
+    )
+
+    assert exit_code == 4
+    assert calls == ["verify"]
+    rendered = "\n".join(output)
+    assert "fixture verification failure" in rendered
+    assert "Backup ID:" in rendered
 
 
 def test_invalid_interactive_jmunch_declaration_fails_before_write(tmp_path: Path) -> None:
@@ -138,7 +182,9 @@ def test_run_verify_calls_read_only_stack_verifier(tmp_path: Path) -> None:
     output: list[str] = []
     calls: list[str] = []
 
-    def verify(plan, _manifests, _context, **_kwargs):
+    def verify(
+        plan: InstallPlan, _manifests: object, _context: object, **_kwargs: object
+    ) -> tuple[LayerResult, ...]:
         calls.append("verify")
         return plan.results
 

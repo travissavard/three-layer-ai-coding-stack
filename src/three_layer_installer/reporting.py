@@ -5,8 +5,20 @@ from __future__ import annotations
 from .manifests import ManifestSet
 from .models import InstallPlan, Layer, LayerResult
 
+_COMPONENT_NAMES = {
+    "rtk": "RTK",
+    "typescript-language-server": "TypeScript Language Server",
+    "typescript": "TypeScript",
+    "pyright": "Pyright",
+    "rust-analyzer": "rust-analyzer",
+    "gopls": "gopls",
+    "jcodemunch": "jCodeMunch",
+    "jdocmunch": "jDocMunch",
+    "jdatamunch": "jDataMunch",
+}
 
-def render_license_notice(manifests: ManifestSet) -> str:
+
+def render_license_notice(manifests: ManifestSet, *, latest: bool = False) -> str:
     records = {item["id"]: item for item in manifests.licenses["components"]}
     versions = manifests.versions["tools"]
     names = {
@@ -20,8 +32,10 @@ def render_license_notice(manifests: ManifestSet) -> str:
         "Layer 3 contains three separately licensed components:",
     ]
     for component, display_name in names.items():
+        version = versions[component]["version"]
+        version_label = f"latest requested (tested pin: {version})" if latest else version
         lines.append(
-            f"- {display_name} {versions[component]['version']}: "
+            f"- {display_name} {version_label}: "
             f"{records[component]['license_url']}"
         )
     lines.extend(
@@ -57,6 +71,36 @@ def _render_result(result: LayerResult, manifests: ManifestSet) -> str:
 def render_plan(plan: InstallPlan, manifests: ManifestSet) -> str:
     basis = plan.options.jmunch_use.value if plan.options.jmunch_use else "declaration required"
     lines = ["Three-Layer AI Coding Stack plan", f"jMunch use basis: {basis}"]
+    component_ids: list[str] = []
+    if any(action.layer is Layer.RTK for action in plan.actions):
+        component_ids.append("rtk")
+    for action in plan.actions:
+        if action.layer is not Layer.LSP or action.component is None:
+            continue
+        language = manifests.languages["languages"][action.component]
+        component_ids.extend(language.get("version_components", (language["server"],)))
+    component_ids.extend(
+        action.component
+        for action in plan.actions
+        if action.layer is Layer.JMUNCH and action.component is not None
+    )
+    unique_components = tuple(dict.fromkeys(component_ids))
+    if unique_components:
+        lines.extend(["", "Planned component versions and sources"])
+        for component_id in unique_components:
+            component = manifests.versions["tools"][component_id]
+            version = (
+                f"latest requested (tested pin: {component['version']})"
+                if plan.options.latest
+                else str(component["version"])
+            )
+            name = _COMPONENT_NAMES.get(component_id, component_id)
+            source = (
+                component.get("latest_source", component["source"])
+                if plan.options.latest
+                else component["source"]
+            )
+            lines.append(f"- {name} {version} — {source}")
     for layer in Layer:
         lines.append("")
         lines.append(f"Layer {layer.value} — {layer.label}")

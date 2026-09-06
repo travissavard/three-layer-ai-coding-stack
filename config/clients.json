@@ -9,7 +9,14 @@
   "clients": {
     "claude": {
       "display_name": "Claude Code",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://code.claude.com/docs/en/plugins-reference#lsp-servers",
+        "mcp": "https://code.claude.com/docs/en/mcp"
+      },
       "executables": ["claude"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "user",
@@ -28,16 +35,24 @@
           "linux": ["${XDG_CONFIG_HOME:-~/.config}/rtk/filters.toml"]
         }
       },
-      "lsp": {"classification": "native", "scope": "user", "languages": ["typescript", "python", "rust"]},
+      "lsp": {"classification": "native", "scope": "user", "minimum_version": "2.0.74", "version_source": "https://github.com/anthropics/claude-code/releases/tag/v2.0.74", "languages": ["typescript", "python", "rust"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.claude.json"}}
     },
     "codex": {
       "display_name": "Codex CLI",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://developers.openai.com/codex/cli/features",
+        "mcp": "https://developers.openai.com/codex/mcp"
+      },
       "executables": ["codex"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "user",
         "args": ["init", "-g", "--codex"],
+        "routing": "instructions",
         "owned_paths": {
           "all": [
             "${CODEX_HOME:-~/.codex}/AGENTS.md",
@@ -46,11 +61,18 @@
         }
       },
       "lsp": {"classification": "unavailable"},
-      "mcp": {"format": "toml", "root_key": "mcp_servers", "user_paths": {"all": "~/.codex/config.toml"}, "absolute_commands": true}
+      "mcp": {"format": "toml", "root_key": "mcp_servers", "user_paths": {"all": "${CODEX_HOME:-~/.codex}/config.toml"}, "absolute_commands": true}
     },
     "copilot": {
       "display_name": "GitHub Copilot CLI",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://docs.github.com/en/copilot/concepts/agents/copilot-cli/lsp-servers",
+        "mcp": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers"
+      },
       "executables": ["copilot"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "user",
@@ -62,12 +84,19 @@
           ]
         }
       },
-      "lsp": {"classification": "native", "scope": "user-or-project", "languages": ["typescript", "python", "rust", "go"]},
+      "lsp": {"classification": "native", "scope": "user-or-project", "minimum_version": "0.0.405", "version_source": "https://github.com/github/copilot-cli/blob/main/changelog.md#00405---2026-02-05", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.copilot/mcp-config.json"}}
     },
     "gemini": {
       "display_name": "Gemini CLI",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://geminicli.com/docs/tools/",
+        "mcp": "https://geminicli.com/docs/tools/mcp-server/"
+      },
       "executables": ["gemini"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "user",
@@ -86,18 +115,33 @@
     },
     "qwen": {
       "display_name": "Qwen Code",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://qwenlm.github.io/qwen-code-docs/en/users/features/memory/",
+        "lsp": "https://qwenlm.github.io/qwen-code-docs/en/users/features/lsp/",
+        "mcp": "https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/"
+      },
       "executables": ["qwen"],
+      "version_probe": ["--version"],
       "rtk": {"mode": "guidance", "path": "~/.qwen/QWEN.md"},
-      "lsp": {"classification": "experimental", "scope": "project", "path": ".lsp.json", "required_flag": "--experimental-lsp", "languages": ["typescript", "python", "rust", "go"]},
+      "lsp": {"classification": "experimental", "scope": "project", "path": ".lsp.json", "required_flag": "--experimental-lsp", "minimum_version": "0.9.0", "version_source": "https://github.com/QwenLM/qwen-code/releases/tag/v0.9.0", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.qwen/settings.json"}}
     },
     "kimi": {
       "display_name": "Kimi CLI",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://moonshotai.github.io/kimi-cli/en/",
+        "mcp": "https://moonshotai.github.io/kimi-cli/en/customization/mcp.html"
+      },
       "executables": ["kimi"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "project",
         "args": ["init", "--agent", "kimi"],
+        "routing": "instructions",
         "owned_paths": {"project": ["AGENTS.md"]}
       },
       "lsp": {"classification": "unavailable"},
@@ -105,30 +149,51 @@
     },
     "kilo": {
       "display_name": "Kilo Code",
-      "executables": ["kilo"],
-      "rtk": {
-        "mode": "native",
-        "scope": "project",
-        "args": ["init", "--agent", "kilocode"],
-        "owned_paths": {"project": [".kilocode/rules/rtk-rules.md"]}
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://kilo.ai/docs/customize/custom-instructions",
+        "lsp": "https://kilo.ai/docs/code-with-ai/platforms/cli",
+        "mcp": "https://kilo.ai/docs/automate/mcp/using-in-kilo-code"
       },
-      "lsp": {"classification": "native", "scope": "user-or-project", "languages": ["typescript", "python", "rust", "go"]},
+      "executables": ["kilo"],
+      "version_probe": ["--version"],
+      "rtk": {
+        "mode": "guidance",
+        "scope": "project",
+        "path": "AGENTS.md"
+      },
+      "lsp": {"classification": "native", "scope": "user-or-project", "minimum_version": "1.0.0", "version_source": "https://kilo.ai/docs/code-with-ai/platforms/cli", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "jsonc", "root_key": "mcp", "user_paths": {"all": "~/.config/kilo/kilo.jsonc"}, "project_path": ".kilo/kilo.jsonc"}
     },
     "kiro": {
       "display_name": "Kiro CLI/IDE",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://kiro.dev/docs/cli/steering/",
+        "lsp": "https://kiro.dev/docs/cli/code-intelligence/",
+        "mcp": "https://kiro.dev/docs/mcp/configuration/"
+      },
       "executables": ["kiro-cli", "kiro"],
+      "version_probe": ["--version"],
       "rtk": {"mode": "guidance", "path": "~/.kiro/steering/token-efficient-routing.md"},
-      "lsp": {"classification": "native", "scope": "project", "path": ".kiro/settings/lsp.json", "languages": ["typescript", "python", "rust", "go"]},
+      "lsp": {"classification": "native", "scope": "project", "path": ".kiro/settings/lsp.json", "minimum_version": "1.22.0", "version_source": "https://kiro.dev/changelog/cli/1-22/", "languages": ["typescript", "python", "rust", "go"]},
       "mcp": {"format": "json", "root_key": "mcpServers", "user_paths": {"all": "~/.kiro/settings/mcp.json"}, "project_path": ".kiro/settings/mcp.json"}
     },
     "antigravity": {
       "display_name": "Antigravity",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://codelabs.developers.google.com/getting-started-google-antigravity",
+        "mcp": "https://codelabs.developers.google.com/getting-started-google-antigravity"
+      },
       "executables": ["antigravity"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "project",
         "args": ["init", "--agent", "antigravity"],
+        "routing": "instructions",
         "owned_paths": {"project": [".agents/rules/antigravity-rtk-rules.md"]}
       },
       "lsp": {"classification": "unavailable"},
@@ -136,7 +201,14 @@
     },
     "vscode": {
       "display_name": "Visual Studio Code",
+      "verified_on": "2026-09-06",
+      "sources": {
+        "rtk": "https://github.com/rtk-ai/rtk/blob/v0.48.0/src/hooks/init.rs",
+        "lsp": "https://code.visualstudio.com/docs/languages/overview",
+        "mcp": "https://code.visualstudio.com/docs/agent-customization/mcp-servers"
+      },
       "executables": ["code"],
+      "version_probe": ["--version"],
       "rtk": {
         "mode": "native",
         "scope": "user",

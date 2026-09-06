@@ -86,3 +86,39 @@ def test_restore_refuses_a_changed_managed_directory_tree(tmp_path: Path) -> Non
         manager.restore(operation.operation_id)
 
     assert executable.read_text(encoding="utf-8") == "changed later"
+
+
+def test_operation_restores_an_existing_managed_directory_tree(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    managed = state / "tools" / "managed-tool"
+    (managed / "bin").mkdir(parents=True)
+    executable = managed / "bin" / "tool"
+    executable.write_text("before", encoding="utf-8")
+    manager = BackupManager(state)
+    operation = manager.begin((managed,), JMunchUse.COMMERCIAL_LICENSED)
+    executable.write_text("upgraded", encoding="utf-8")
+    (managed / "new-metadata").write_text("created", encoding="utf-8")
+    manager.finalize(operation)
+
+    manager.restore(operation.operation_id)
+
+    assert executable.read_text(encoding="utf-8") == "before"
+    assert (managed / "new-metadata").exists() is False
+
+
+def test_corrupt_backup_refuses_restore_before_any_mutation(tmp_path: Path) -> None:
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_text("before", encoding="utf-8")
+    second.write_text("before", encoding="utf-8")
+    manager = BackupManager(tmp_path / "state")
+    operation = manager.begin((first, second), None)
+    first.write_text("installed", encoding="utf-8")
+    second.write_text("installed", encoding="utf-8")
+    manager.finalize(operation)
+    (operation.manifest_path.parent / "files" / "0001.bin").write_text(
+        "corrupt", encoding="utf-8"
+    )
+    with pytest.raises(BackupError, match="corrupt"):
+        manager.restore(operation.operation_id)
+    assert first.read_text(encoding="utf-8") == "installed"
+    assert second.read_text(encoding="utf-8") == "installed"

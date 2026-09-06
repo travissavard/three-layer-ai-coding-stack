@@ -31,6 +31,7 @@ class ClientAdapter:
     context: PathContext
     project: Path | None = None
     uvx_command: str = "uvx"
+    latest: bool = False
 
     @property
     def definition(self) -> dict[str, object]:
@@ -68,7 +69,7 @@ class ClientAdapter:
                 / "tools"
                 / "jmunch"
                 / component
-                / tool["version"]
+                / ("latest" if self.latest else tool["version"])
                 / "bin"
                 / executable
             ).resolve()
@@ -87,7 +88,11 @@ class ClientAdapter:
                 command = [
                     self.uvx_command,
                     "--from",
-                    f"{tool['package']}=={tool['version']}",
+                    (
+                        str(tool["package"])
+                        if self.latest
+                        else f"{tool['package']}=={tool['version']}"
+                    ),
                     tool["executable"],
                 ]
                 if self.client_id is ClientId.KILO:
@@ -199,6 +204,7 @@ def adapter_for(
     context: PathContext,
     project: Path | None = None,
     uvx_command: str = "uvx",
+    latest: bool = False,
 ) -> ClientAdapter:
     return ClientAdapter(
         client_id,
@@ -206,4 +212,5 @@ def adapter_for(
         context,
         project.resolve() if project else None,
         uvx_command,
+        latest,
     )

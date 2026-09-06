@@ -7,4 +7,9 @@ __pycache__/
 *.py[cod]
 build/
 dist/
-
+.env
+.env.*
+!.env.example
+.code-index/
+.doc-index/
+.data-index/

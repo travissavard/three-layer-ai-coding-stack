@@ -97,21 +97,41 @@ class BackupManager:
             os.chmod(backups, 0o700)
 
         records: list[dict[str, Any]] = []
+        if any(path.is_symlink() for path in paths):
+            raise BackupError("refusing to back up a symbolic-link target")
         unique_paths = tuple(dict.fromkeys(path.resolve() for path in paths))
         for index, path in enumerate(unique_paths):
+            if path.is_symlink():
+                raise BackupError(f"refusing to back up a symbolic-link target: {path}")
             if path.is_dir():
-                raise BackupError(f"refusing to replace an existing directory: {path}")
-            existed = path.is_file()
-            before = path.read_bytes() if existed else None
-            backup_name = f"{index:04d}.bin" if existed else None
-            if before is not None and backup_name is not None:
-                atomic_write(backups / backup_name, before)
+                try:
+                    relative = path.relative_to(self.state_root.resolve())
+                except ValueError as exc:
+                    raise BackupError(
+                        f"refusing to back up a directory outside installer state: {path}"
+                    ) from exc
+                if not relative.parts or relative.parts[0] == "operations":
+                    raise BackupError(f"refusing to back up installer operation state: {path}")
+                kind = "directory"
+                existed = True
+                backup_name = f"{index:04d}.dir"
+                shutil.copytree(path, backups / backup_name, symlinks=True)
+            elif path.is_file():
+                kind = "file"
+                existed = True
+                backup_name = f"{index:04d}.bin"
+                atomic_write(backups / backup_name, path.read_bytes())
+            else:
+                kind = "missing"
+                existed = False
+                backup_name = None
             records.append(
                 {
                     "path": str(path),
+                    "kind": kind,
                     "existed": existed,
                     "backup": backup_name,
-                    "before_sha256": _sha256(before) if before is not None else None,
+                    "before_sha256": _current_hash(path),
                     "after_sha256": None,
                 }
             )
@@ -152,15 +172,40 @@ class BackupManager:
         if manifest.get("status") != "completed":
             raise BackupError("backup operation was not completed")
 
+        backup_root = manifest_path.parent / "files"
         for record in manifest["files"]:
             path = Path(record["path"])
             if _current_hash(path) != record.get("after_sha256"):
                 raise BackupError(f"{path} changed since installation; restore made no changes")
+            if record["existed"]:
+                name = record.get("backup")
+                if not isinstance(name, str) or Path(name).name != name:
+                    raise BackupError("backup data path is invalid; restore made no changes")
+                source = backup_root / name
+                if source.is_symlink() or _current_hash(source) != record.get("before_sha256"):
+                    raise BackupError("backup data is missing or corrupt; restore made no changes")
 
-        backup_root = manifest_path.parent / "files"
         for record in manifest["files"]:
             path = Path(record["path"])
-            if record["existed"]:
+            kind = record.get("kind", "file" if record["existed"] else "missing")
+            if kind == "directory":
+                backup_name = record.get("backup")
+                if not isinstance(backup_name, str):
+                    raise BackupError(f"backup data is missing for {path}")
+                source = backup_root / backup_name
+                if not source.is_dir() or path.is_symlink() or not path.is_dir():
+                    raise BackupError(f"directory backup data is invalid for {path}")
+                staging = path.parent / f".{path.name}.restore-{uuid.uuid4().hex}"
+                displaced = path.parent / f".{path.name}.replaced-{uuid.uuid4().hex}"
+                shutil.copytree(source, staging, symlinks=True)
+                os.replace(path, displaced)
+                try:
+                    os.replace(staging, path)
+                except OSError:
+                    os.replace(displaced, path)
+                    raise
+                shutil.rmtree(displaced)
+            elif record["existed"]:
                 backup_name = record.get("backup")
                 if not isinstance(backup_name, str):
                     raise BackupError(f"backup data is missing for {path}")

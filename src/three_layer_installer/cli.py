@@ -17,6 +17,7 @@ from .models import (
     InstallerOptions,
     JMunchUse,
     LanguageSelection,
+    Layer,
     LayerResult,
     OperationMode,
     Status,
@@ -157,7 +158,7 @@ def run(
 
     notice_printed = False
     if plan.requires_jmunch_declaration:
-        output(render_license_notice(loaded))
+        output(render_license_notice(loaded, latest=options.latest))
         notice_printed = True
         if options.dry_run:
             output(render_plan(plan, loaded))
@@ -174,17 +175,25 @@ def run(
         plan = build_plan(options, loaded, detections)
 
     if options.jmunch_use is not JMunchUse.SKIP and not notice_printed:
-        output(render_license_notice(loaded))
+        output(render_license_notice(loaded, latest=options.latest))
     output(render_plan(plan, loaded))
+    if any(action.layer is Layer.RTK for action in plan.actions) and (
+        options.latest or which("rtk") is None
+    ):
+        output(
+            f"Managed RTK bin: {active_context.state_root / 'bin'}\n"
+            "Add this directory to the client's PATH before using RTK hooks or routing; "
+            "restart the terminal and client afterwards."
+        )
 
     if options.mode is OperationMode.VERIFY:
-        results = stack_verifier(
-            plan,
-            loaded,
-            active_context,
-            runner=runner,
-            which=which,
-        )
+        try:
+            results = stack_verifier(
+                plan, loaded, active_context, runner=runner, which=which,
+            )
+        except Exception as exc:
+            output(f"Verification failed ({type(exc).__name__}); see troubleshooting.")
+            return 4
         output(render_results(results, loaded))
         return 4 if any(result.status is Status.FAILED for result in results) else 0
     if options.dry_run:
@@ -212,10 +221,23 @@ def run(
                 f"Backup ID: {exc.operation_id} (restore with --restore {exc.operation_id})"
             )
         return 4
-    output(render_results(report.results, loaded))
+    try:
+        verification_results = stack_verifier(
+            plan,
+            loaded,
+            active_context,
+            runner=runner,
+            which=which,
+        )
+    except Exception as exc:
+        output(f"Post-install verification failed ({type(exc).__name__}); see troubleshooting.")
+        if report.operation_id:
+            output(f"Backup ID: {report.operation_id}")
+        return 4
+    output(render_results(verification_results, loaded))
     if report.operation_id:
         output(f"Backup ID: {report.operation_id}")
-    return 0
+    return 4 if any(result.status is Status.FAILED for result in verification_results) else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

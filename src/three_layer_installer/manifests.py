@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,12 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def load_manifests(root: Path | None = None) -> ManifestSet:
-    config_root = (root or repository_root()) / "config"
+    packaged = Path(__file__).resolve().parent / "config"
+    config_root = (
+        root / "config" if root is not None
+        else packaged if packaged.is_dir()
+        else repository_root() / "config"
+    )
     return ManifestSet(
         clients=_load_json(config_root / "clients.json"),
         languages=_load_json(config_root / "languages.json"),
@@ -68,6 +74,7 @@ def validate_manifests(manifests: ManifestSet) -> list[str]:
         tools = {}
     if not isinstance(languages, dict) or not languages:
         errors.append("languages.json must define languages")
+        languages = {}
     if not isinstance(records, list):
         errors.append("licenses.json must define a components list")
         records = []
@@ -88,6 +95,61 @@ def validate_manifests(manifests: ManifestSet) -> list[str]:
         errors.append(f"tools missing license records: {', '.join(missing_tools)}")
     if missing_clients:
         errors.append(f"clients missing terms records: {', '.join(missing_clients)}")
+
+    for client_id, definition in clients.items():
+        if not isinstance(definition, dict):
+            errors.append(f"client {client_id} must be an object")
+            continue
+        probe = definition.get("version_probe")
+        if not isinstance(probe, list) or not probe or not all(
+            isinstance(item, str) and item for item in probe
+        ):
+            errors.append(f"{client_id} is missing a valid version_probe")
+        sources = definition.get("sources")
+        if not isinstance(sources, dict) or set(sources) != {"rtk", "lsp", "mcp"}:
+            errors.append(f"{client_id} must define RTK, LSP, and MCP sources")
+        elif not all(
+            isinstance(source, str) and source.startswith("https://")
+            for source in sources.values()
+        ):
+            errors.append(f"{client_id} integration sources must use HTTPS")
+        lsp = definition.get("lsp")
+        if not isinstance(lsp, dict):
+            errors.append(f"{client_id} must define an LSP classification")
+            continue
+        classification = lsp.get("classification")
+        if classification not in {"native", "experimental", "unavailable", "editor"}:
+            errors.append(f"{client_id} has an invalid LSP classification")
+            continue
+        if classification in {"native", "experimental"}:
+            minimum = lsp.get("minimum_version")
+            if not isinstance(minimum, str) or re.fullmatch(r"\d+\.\d+\.\d+", minimum) is None:
+                errors.append(
+                    f"{client_id} {classification} LSP is missing a minimum_version"
+                )
+            version_source = lsp.get("version_source")
+            if not isinstance(version_source, str) or not version_source.startswith("https://"):
+                errors.append(f"{client_id} LSP is missing an HTTPS version_source")
+
+    for language_id, definition in languages.items():
+        if not isinstance(definition, dict):
+            errors.append(f"language {language_id} must be an object")
+            continue
+        components = definition.get("version_components")
+        if not isinstance(components, list) or not components:
+            errors.append(f"{language_id} must define version_components")
+        else:
+            for component in components:
+                if not isinstance(component, str) or component not in tools:
+                    errors.append(
+                        f"{language_id} references unknown version component: {component}"
+                    )
+        for command_name in ("command", "installer", "latest_installer"):
+            command = definition.get(command_name)
+            if not isinstance(command, list) or not command or not all(
+                isinstance(item, str) and item for item in command
+            ):
+                errors.append(f"{language_id} has an invalid {command_name}")
 
     record_map = {
         item["id"]: item

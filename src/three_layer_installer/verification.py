@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
-from collections.abc import Sequence
+import time
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
@@ -28,17 +31,25 @@ class JsonRpcTransport(Protocol):
 class ProcessJsonRpcTransport:
     """Small stdio JSON-RPC client supporting MCP lines and LSP headers."""
 
-    def __init__(self, argv: Sequence[str], *, framing: str, timeout: float = 10) -> None:
+    def __init__(
+        self,
+        argv: Sequence[str],
+        *,
+        framing: str,
+        timeout: float = 30,
+        environment: Mapping[str, str] | None = None,
+    ) -> None:
         if framing not in {"line", "content-length"}:
             raise ValueError("framing must be line or content-length")
         self.framing = framing
         self.timeout = timeout
         self.next_id = 1
         self.process = subprocess.Popen(
-            list(argv),
+            [shutil.which(argv[0]) or argv[0], *argv[1:]],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, **(environment or {})},
             shell=False,
         )
 
@@ -84,6 +95,8 @@ class ProcessJsonRpcTransport:
                     content_length = int(raw_value.strip())
             if content_length is None or content_length < 0:
                 raise RuntimeError("LSP response omitted Content-Length")
+            if content_length > 8 * 1024 * 1024:
+                raise RuntimeError("LSP response exceeded size limit")
             value = json.loads(self.stdout.read(content_length))
         if not isinstance(value, dict):
             raise RuntimeError("JSON-RPC response must be an object")
@@ -102,12 +115,28 @@ class ProcessJsonRpcTransport:
         request_id = self.next_id
         self.next_id += 1
         self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+        deadline = time.monotonic() + self.timeout
         while True:
+            if time.monotonic() > deadline:
+                raise RuntimeError("JSON-RPC request timed out")
             response = self._read()
+            if "method" in response and "id" in response:
+                # Language servers can request workspace settings during initialization.
+                incoming_params = response.get("params", {})
+                items = (
+                    incoming_params.get("items", []) if isinstance(incoming_params, dict) else []
+                )
+                result = (
+                    [None for _item in items]
+                    if response["method"] == "workspace/configuration"
+                    else None
+                )
+                self._write({"jsonrpc": "2.0", "id": response["id"], "result": result})
+                continue
             if response.get("id") != request_id:
                 continue
             if "error" in response:
-                raise RuntimeError(f"JSON-RPC {method} failed: {response['error']}")
+                raise RuntimeError(f"JSON-RPC {method} returned an error")
             return response.get("result")
 
     def notify(self, method: str, params: dict[str, object]) -> None:
@@ -121,6 +150,9 @@ class ProcessJsonRpcTransport:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
+        for stream in (self.process.stdin, self.process.stdout):
+            if stream is not None:
+                stream.close()
 
 
 def verify_mcp_transport(transport: JsonRpcTransport, expected_product: str) -> ProtocolCheck:
@@ -152,16 +184,21 @@ def verify_mcp_transport(transport: JsonRpcTransport, expected_product: str) -> 
             return ProtocolCheck(False, "MCP resources/list returned an invalid result")
         return ProtocolCheck(True, "MCP server and tools verified")
     except Exception as exc:
-        return ProtocolCheck(False, f"MCP protocol verification failed: {exc}")
+        return ProtocolCheck(False, f"MCP protocol verification failed ({type(exc).__name__})")
     finally:
         transport.close()
 
 
-def verify_mcp_server(argv: Sequence[str], expected_product: str) -> ProtocolCheck:
+def verify_mcp_server(
+    argv: Sequence[str],
+    expected_product: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> ProtocolCheck:
     try:
-        transport = ProcessJsonRpcTransport(argv, framing="line")
+        transport = ProcessJsonRpcTransport(argv, framing="line", environment=environment)
     except OSError as exc:
-        return ProtocolCheck(False, f"MCP server could not start: {exc}")
+        return ProtocolCheck(False, f"MCP server could not start ({type(exc).__name__})")
     return verify_mcp_transport(transport, expected_product)
 
 
@@ -216,7 +253,7 @@ def verify_lsp_transport(
         transport.notify("exit", {})
         return ProtocolCheck(True, "LSP navigation protocol verified")
     except Exception as exc:
-        return ProtocolCheck(False, f"LSP protocol verification failed: {exc}")
+        return ProtocolCheck(False, f"LSP protocol verification failed ({type(exc).__name__})")
     finally:
         transport.close()
 
@@ -231,7 +268,7 @@ def verify_lsp_server(
     try:
         transport = ProcessJsonRpcTransport(argv, framing="content-length")
     except OSError as exc:
-        return ProtocolCheck(False, f"LSP server could not start: {exc}")
+        return ProtocolCheck(False, f"LSP server could not start ({type(exc).__name__})")
     return verify_lsp_transport(
         transport,
         document_uri=document_uri,

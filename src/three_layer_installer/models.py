@@ -92,6 +92,7 @@ class Detection:
     detected: bool
     executable: Path | None
     config_paths: tuple[Path, ...] = ()
+    version: str | None = None
 
 
 @dataclass(frozen=True)

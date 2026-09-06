@@ -6,36 +6,44 @@
       "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
       "markers": ["package.json", "tsconfig.json", "jsconfig.json"],
       "server": "typescript-language-server",
+      "version_components": ["typescript-language-server", "typescript"],
       "command": ["typescript-language-server", "--stdio"],
       "language_ids": {".ts": "typescript", ".tsx": "typescriptreact", ".js": "javascript", ".jsx": "javascriptreact", ".mjs": "javascript", ".cjs": "javascript"},
-      "installer": ["npm", "install", "--global", "typescript-language-server@6.0.0", "typescript@7.0.2"]
+      "installer": ["npm", "install", "--global", "typescript-language-server@6.0.0", "typescript@7.0.2"],
+      "latest_installer": ["npm", "install", "--global", "typescript-language-server", "typescript"]
     },
     "python": {
       "display_name": "Python",
       "extensions": [".py", ".pyi"],
       "markers": ["pyproject.toml", "requirements.txt", "setup.py"],
       "server": "pyright",
+      "version_components": ["pyright"],
       "command": ["pyright-langserver", "--stdio"],
       "language_ids": {".py": "python", ".pyi": "python"},
-      "installer": ["npm", "install", "--global", "pyright@1.1.413"]
+      "installer": ["npm", "install", "--global", "pyright@1.1.413"],
+      "latest_installer": ["npm", "install", "--global", "pyright"]
     },
     "rust": {
       "display_name": "Rust",
       "extensions": [".rs"],
       "markers": ["Cargo.toml"],
       "server": "rust-analyzer",
+      "version_components": ["rust-analyzer"],
       "command": ["rust-analyzer"],
       "language_ids": {".rs": "rust"},
-      "installer": ["rustup", "component", "add", "rust-analyzer"]
+      "installer": ["rustup", "component", "add", "rust-analyzer"],
+      "latest_installer": ["rustup", "component", "add", "rust-analyzer"]
     },
     "go": {
       "display_name": "Go",
       "extensions": [".go"],
       "markers": ["go.mod", "go.work"],
       "server": "gopls",
+      "version_components": ["gopls"],
       "command": ["gopls", "serve"],
       "language_ids": {".go": "go"},
-      "installer": ["go", "install", "golang.org/x/tools/gopls@v0.23.0"]
+      "installer": ["go", "install", "golang.org/x/tools/gopls@v0.23.0"],
+      "latest_installer": ["go", "install", "golang.org/x/tools/gopls@latest"]
     }
   }
 }

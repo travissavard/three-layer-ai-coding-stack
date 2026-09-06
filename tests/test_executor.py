@@ -10,8 +10,8 @@ from three_layer_installer.executor import (
     ExecutionError,
     execute_plan,
 )
-from three_layer_installer.manifests import load_manifests
-from three_layer_installer.models import ClientId, Detection
+from three_layer_installer.manifests import ManifestSet, load_manifests
+from three_layer_installer.models import ClientId, Detection, InstallPlan
 from three_layer_installer.paths import PathContext, PlatformKind
 from three_layer_installer.planner import build_plan
 
@@ -49,6 +49,25 @@ class RecordingRunner:
         return CommandResult(0, "ok", "")
 
 
+class InterruptingRunner(RecordingRunner):
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        environment: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
+        timeout: float = 60,
+    ) -> CommandResult:
+        if tuple(argv)[:3] == ("rtk", "init", "--dry-run"):
+            raise KeyboardInterrupt
+        return super().run(
+            argv,
+            environment=environment,
+            cwd=cwd,
+            timeout=timeout,
+        )
+
+
 def _context(tmp_path: Path) -> PathContext:
     return PathContext(
         PlatformKind.WINDOWS,
@@ -60,9 +79,15 @@ def _context(tmp_path: Path) -> PathContext:
     )
 
 
-def _plan(args: list[str], *detected: ClientId):
+def _plan(args: list[str], *detected: ClientId) -> InstallPlan:
     detections = {
-        client: Detection(client, client in detected, None) for client in ClientId
+        client: Detection(
+            client,
+            client in detected,
+            Path(f"C:/tools/{client.value}.exe") if client in detected else None,
+            version="999.0.0" if client in detected else None,
+        )
+        for client in ClientId
     }
     return build_plan(parse_args(args), load_manifests(), detections)
 
@@ -151,6 +176,30 @@ def test_guidance_client_gets_owned_rtk_block(tmp_path: Path) -> None:
     assert "Prefix supported shell commands with `rtk`" in guidance
 
 
+def test_undetected_explicit_client_provisions_nothing(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    plan = _plan(["--client", "qwen", "--jmunch-use", "skip"])
+
+    def unexpected_rtk_install(
+        _manifests: ManifestSet, _context: PathContext, _destination: Path
+    ) -> None:
+        pytest.fail("an undetected client must not install RTK")
+
+    report = execute_plan(
+        plan,
+        load_manifests(),
+        _context(tmp_path),
+        runner=runner,
+        which=lambda _name: None,
+        rtk_installer=unexpected_rtk_install,
+    )
+
+    assert runner.calls == []
+    assert report.operation_id is None
+    assert (tmp_path / ".qwen" / "QWEN.md").exists() is False
+    assert (_context(tmp_path).state_root / "bin").exists() is False
+
+
 def test_failed_rtk_identity_check_does_not_write_client_config(tmp_path: Path) -> None:
     runner = RecordingRunner(("rtk", "gain"))
     plan = _plan(
@@ -168,6 +217,29 @@ def test_failed_rtk_identity_check_does_not_write_client_config(tmp_path: Path) 
         )
 
     assert (tmp_path / ".claude.json").exists() is False
+
+
+def test_keyboard_interrupt_seals_a_restorable_operation(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+    plan = _plan(
+        ["--client", "claude", "--jmunch-use", "skip"],
+        ClientId.CLAUDE,
+    )
+
+    with pytest.raises(ExecutionError, match="interrupted") as error:
+        execute_plan(
+            plan,
+            load_manifests(),
+            context,
+            runner=InterruptingRunner(),
+            which=lambda name: f"C:/tools/{name}.exe",
+        )
+
+    assert error.value.operation_id is not None
+
+    from three_layer_installer.backup import BackupManager
+
+    BackupManager(context.state_root).restore(error.value.operation_id)
 
 
 def test_apply_persists_bootstrap_uv_and_uses_managed_absolute_command(
@@ -219,7 +291,9 @@ def test_apply_installs_missing_rtk_inside_restorable_transaction(tmp_path: Path
     )
     installed: list[Path] = []
 
-    def install_rtk(_manifests, _context, destination: Path) -> None:
+    def install_rtk(
+        _manifests: ManifestSet, _context: PathContext, destination: Path
+    ) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(b"rtk")
         installed.append(destination)
@@ -295,6 +369,113 @@ def test_missing_language_runtime_fails_before_install_command(tmp_path: Path) -
 
     assert not any(call[:2] == ("npm", "install") for call, _env, _cwd in runner.calls)
     assert error.value.operation_id is not None
+
+
+def test_latest_installs_unpinned_language_server_and_verified_latest_rtk(
+    tmp_path: Path,
+) -> None:
+    runner = RecordingRunner()
+    plan = _plan(
+        [
+            "--client",
+            "copilot",
+            "--languages",
+            "python",
+            "--jmunch-use",
+            "skip",
+            "--latest",
+        ],
+        ClientId.COPILOT,
+    )
+    latest_installs: list[Path] = []
+
+    def install_latest(
+        _manifests: ManifestSet, _context: PathContext, destination: Path
+    ) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"latest-rtk")
+        latest_installs.append(destination)
+
+    execute_plan(
+        plan,
+        load_manifests(),
+        _context(tmp_path),
+        runner=runner,
+        which=lambda name: (
+            f"C:/tools/{name}.exe" if name in {"copilot", "npm"} else None
+        ),
+        latest_rtk_installer=install_latest,
+    )
+
+    calls = [call for call, _environment, _cwd in runner.calls]
+    assert latest_installs == [_context(tmp_path).state_root / "bin" / "rtk.exe"]
+    assert ("npm", "install", "--global", "pyright") in calls
+    assert not any("pyright@" in argument for call in calls for argument in call)
+
+
+def test_latest_codex_upgrade_is_backed_up_and_restorable(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+    tool_root = context.state_root / "tools" / "jmunch"
+    for component in ("jcodemunch", "jdocmunch", "jdatamunch"):
+        executable = tool_root / component / "latest" / "bin" / f"{component}-mcp.exe"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("before", encoding="utf-8")
+
+    def upgrade_tool(
+        call: tuple[str, ...], _environment: Mapping[str, str] | None, _cwd: Path | None
+    ) -> None:
+        if call[:4] != ("uv", "tool", "install", "--upgrade"):
+            return
+        component = call[4].removesuffix("-mcp")
+        executable = tool_root / component / "latest" / "bin" / f"{component}-mcp.exe"
+        executable.write_text("upgraded", encoding="utf-8")
+
+    runner = RecordingRunner(on_call=upgrade_tool)
+    plan = _plan(
+        [
+            "--client",
+            "codex",
+            "--jmunch-use",
+            "commercial-licensed",
+            "--latest",
+        ],
+        ClientId.CODEX,
+    )
+
+    def install_latest(
+        _manifests: ManifestSet, _context: PathContext, destination: Path
+    ) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"rtk")
+
+    report = execute_plan(
+        plan,
+        load_manifests(),
+        context,
+        runner=runner,
+        which=lambda name: f"C:/tools/{name}.exe" if name in {"uv", "uvx"} else None,
+        latest_rtk_installer=install_latest,
+    )
+
+    assert report.operation_id is not None
+    assert all(
+        (tool_root / component / "latest" / "bin" / f"{component}-mcp.exe").read_text(
+            encoding="utf-8"
+        )
+        == "upgraded"
+        for component in ("jcodemunch", "jdocmunch", "jdatamunch")
+    )
+
+    from three_layer_installer.backup import BackupManager
+
+    BackupManager(context.state_root).restore(report.operation_id)
+    assert all(
+        (tool_root / component / "latest" / "bin" / f"{component}-mcp.exe").read_text(
+            encoding="utf-8"
+        )
+        == "before"
+        for component in ("jcodemunch", "jdocmunch", "jdatamunch")
+    )
 
 
 def test_project_rtk_runs_in_project_with_telemetry_disabled_and_restores(
