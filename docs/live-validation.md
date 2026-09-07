@@ -49,7 +49,9 @@ that guard, or run this workflow on a persistent/self-hosted runner.
 - jMunch is explicitly skipped. This workflow does not declare a noncommercial
   or paid commercial license basis on anyone's behalf.
 - Restore checks compare every owned file against its pre-install SHA-256 or
-  expected absence, and check an unrelated sentinel file. This does not establish
+  expected absence, compare the complete client config trees, and check an
+  unrelated sentinel file. A separate check edits a fixture and proves restore
+  refuses it without changing any client config. This does not establish
   restore after a full jMunch/plugin installation or after a client edits config.
 - A report's `passed: true` means its **component** checks passed.
   `full_end_to_end` remains `false`; skipped/unproven work is not a pass.
@@ -67,3 +69,15 @@ selects the latest **compatible TypeScript 6** alongside the current language
 server. This does not upgrade the language-server integration to TypeScript 7's
 separate native LSP implementation. See the
 [upstream installation instructions](https://github.com/typescript-language-server/typescript-language-server/tree/v6.0.0#installing).
+
+The first real RTK installation also exposed a missing Claude configuration
+directory and Gemini's noninteractive refusal to patch existing settings. The
+installer now creates Claude's directory after taking its backup and passes
+Gemini's explicit auto-patch option after the installer confirmation. LF checkout
+rules prevent Windows CRLF line endings from breaking the Bash launcher in Docker
+or WSL. These fixes were driven by failed real-tool runs, not mock-only checks.
+
+On Windows, gopls rejected a temporary workspace containing the short-name alias
+`RUNNER~1`, because Windows reports the actual directory as `runneradmin`. Both
+the live harness and the installer's protocol verifier now resolve the temporary
+directory to its canonical path before constructing language-server file URIs.

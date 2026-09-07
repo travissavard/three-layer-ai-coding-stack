@@ -144,7 +144,8 @@ def _verify_lsp(
             verification_scope=VerificationScope.CONFIG_ONLY,
         )
     with tempfile.TemporaryDirectory(prefix="three-layer-lsp-") as temporary:
-        temporary_root = Path(temporary)
+        # gopls rejects Windows short-name aliases (for example RUNNER~1).
+        temporary_root = Path(temporary).resolve()
         for language in selected_languages:
             definition = manifests.languages["languages"][language]
             command = tuple(definition["command"])

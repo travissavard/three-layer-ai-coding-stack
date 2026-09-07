@@ -1,7 +1,11 @@
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 
+import pytest
+
+from three_layer_installer import stack_verifier
 from three_layer_installer.adapters import adapter_for
 from three_layer_installer.cli import parse_args
 from three_layer_installer.executor import CommandResult
@@ -258,3 +262,28 @@ def test_empty_mcp_config_cannot_pass_by_starting_expected_servers(tmp_path: Pat
     assert calls == []
     jmunch = next(result for result in results if result.layer is Layer.JMUNCH)
     assert jmunch.status is Status.FAILED
+
+
+def test_lsp_fixture_uri_uses_canonical_temporary_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "language-workspace"
+    (workspace / "alias").mkdir(parents=True)
+    temporary_alias = workspace / "alias" / ".."
+    monkeypatch.setattr(
+        stack_verifier.tempfile,
+        "TemporaryDirectory",
+        lambda **_kwargs: nullcontext(str(temporary_alias)),
+    )
+    observed: list[object] = []
+
+    def verify_lsp(_command: Sequence[str], **kwargs: object) -> ProtocolCheck:
+        observed.append(kwargs["document_uri"])
+        return ProtocolCheck(True, "ok")
+
+    verify_stack(
+        _plan(tmp_path), load_manifests(), _context(tmp_path), runner=Runner(),
+        which=lambda name: name, lsp_verifier=verify_lsp,
+    )
+
+    assert observed == [(workspace.resolve() / "example.py").as_uri()]

@@ -222,8 +222,10 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
     ]
     # Existing config is a real supported detection route. These are explicit fixtures,
     # not stand-ins claimed as live clients. Versions/LSP client setup remain unproven.
+    seeded_targets: list[Path] = []
     for client in ClientId:
         target = adapter_for(client, manifest, context).mcp_target
+        seeded_targets.append(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
             target.write_text(
@@ -250,14 +252,21 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         )
     ]
     config_roots.append(project)
+    config_roots.append(adapter_for(ClientId.VSCODE, manifest, context).mcp_target.parent)
 
     def config_snapshot() -> dict[str, str]:
-        return {
-            str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+        paths = set(seeded_targets)
+        paths.update(
+            path
             for folder in config_roots
             if folder.is_dir()
             for path in folder.rglob("*")
-            if path.is_file() and ".git" not in path.relative_to(folder).parts
+            if ".git" not in path.relative_to(folder).parts
+        )
+        return {
+            str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in paths
+            if path.is_file()
         }
 
     baseline_configs = config_snapshot()
@@ -267,6 +276,27 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         ids = re.findall(r"Backup ID: ([\w-]+)", stdout)
         assert len(ids) == 1, "real installation did not produce exactly one backup ID"
         install_ids.append(ids[0])
+        expected_routing = {
+            "claude": (context.home / ".claude/settings.json", "rtk hook claude"),
+            "codex": (context.home / ".codex/AGENTS.md", "rtk"),
+            "copilot": (context.home / ".copilot/hooks/rtk-rewrite.json", "rtk"),
+            "gemini": (context.home / ".gemini/settings.json", "rtk-hook-gemini.sh"),
+            "qwen": (context.home / ".qwen/QWEN.md", "three-layer:rtk-routing:start"),
+            "kimi": (project / "AGENTS.md", "rtk-instructions"),
+            "kilo": (project / "AGENTS.md", "three-layer:rtk-routing:start"),
+            "kiro": (
+                context.home / ".kiro/steering/token-efficient-routing.md",
+                "three-layer:rtk-routing:start",
+            ),
+            "antigravity": (project / ".agents/rules/antigravity-rtk-rules.md", "rtk"),
+            "vscode": (context.home / ".copilot/hooks/rtk-rewrite.json", "rtk"),
+        }
+        for client, (target, expected_text) in expected_routing.items():
+            assert target.is_file(), f"{client} routing file missing: {target}"
+            assert expected_text in target.read_text(encoding="utf-8-sig").lower(), (
+                f"{client} routing was not configured"
+            )
+        report.setdefault("adapter_assertions", []).append(sorted(expected_routing))
         return ids[0]
 
     check("fresh RTK install + all config-detected adapters", apply)
@@ -439,6 +469,23 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
 
         check(language + " language server", language_test)
 
+    def require_all_stages() -> str:
+        expected = {
+            "fresh RTK install + all config-detected adapters",
+            "required RTK binary",
+            "RTK actual commands",
+            "reinstall",
+            "restore conflict protection",
+            "complete config tree restore",
+            *(language + " language server" for language in languages),
+        }
+        actual = {item["name"] for item in report["checks"]}
+        assert expected <= actual, f"required checks were omitted: {sorted(expected - actual)}"
+        restores = [name for name in actual if re.fullmatch(r"restore [\w-]+", name)]
+        assert len(restores) == 2, "both real install operations must be restored"
+        return "every required verification stage ran"
+
+    check("required verification stages", require_all_stages)
     report["passed"] = all(item["status"] == "PASS" for item in report["checks"])
     report["full_end_to_end"] = False
     save()
@@ -475,7 +522,8 @@ def main() -> int:
     launcher = shutil.which("pwsh" if os.name == "nt" else "bash")
     if not launcher:
         raise RuntimeError("PowerShell 7 or Bash is required for real launcher verification")
-    root = Path(tempfile.mkdtemp(prefix="three-layer-live-"))
+    # Expand Windows short-name aliases before creating language-server URIs.
+    root = Path(tempfile.mkdtemp(prefix="three-layer-live-")).resolve()
     print(f"Disposable profile retained at {root}", flush=True)
     env = isolated_environment(root, native_home=native_home)
     return subprocess.call(

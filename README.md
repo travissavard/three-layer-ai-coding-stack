@@ -203,7 +203,9 @@ Pinned versions are the recommended default. `--latest` deliberately opts out of
 RTK, language servers, and jMunch packages. The plan labels them as untested latest requests and
 links their registries. RTK latest-mode queries GitHub's official release API and proceeds only
 when GitHub provides a valid SHA-256 digest for the exact platform asset. Registry packages use
-their normal highest stable resolution. Current releases can change behavior or license terms, so
+their normal highest stable resolution, except the TypeScript companion stays on the latest
+compatible TypeScript 6 release (the pinned language server does not support TypeScript 7).
+Current releases can change behavior or license terms, so
 review the displayed sources and controlling terms before confirming.
 
 ## Safe changes and restore
@@ -249,6 +251,10 @@ LSP, backup, and restore issues are covered in [docs/troubleshooting.md](docs/tr
 The design and security boundaries are described in [docs/architecture.md](docs/architecture.md).
 
 ## Development
+
+For real downloads, launcher setup, reinstall/restore, and language-server navigation tests,
+see [live validation and its limits](docs/live-validation.md). Passing those component tests
+does **not** certify all three layers inside an actual AI-client session.
 
 ```bash
 uv sync --frozen
