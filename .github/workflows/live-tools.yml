@@ -4,6 +4,16 @@ on:
   push:
     branches: [test/real-e2e]
   workflow_dispatch:
+    inputs:
+      jmunch_use:
+        description: "Your valid jMunch license basis; skip makes no declaration"
+        required: true
+        default: skip
+        type: choice
+        options:
+          - skip
+          - noncommercial
+          - commercial-licensed
 
 permissions:
   contents: read
@@ -11,6 +21,8 @@ permissions:
 jobs:
   live-tools:
     runs-on: ${{ matrix.os }}
+    env:
+      LIVE_JMUNCH_USE: ${{ inputs.jmunch_use || 'skip' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -34,10 +46,10 @@ jobs:
         run: uv sync --frozen
       - name: Test real tools on Linux or macOS
         if: runner.os != 'Windows'
-        run: uv run --frozen python scripts/live_tools.py --languages typescript,python,go,rust
+        run: uv run --frozen python scripts/live_tools.py --languages typescript,python,go,rust --jmunch-use "$LIVE_JMUNCH_USE"
       - name: Test real tools in disposable Windows user profile
         if: runner.os == 'Windows'
-        run: uv run --frozen python scripts/live_tools.py --ci-native-home --languages typescript,python,go,rust
+        run: uv run --frozen python scripts/live_tools.py --ci-native-home --languages typescript,python,go,rust --jmunch-use "$env:LIVE_JMUNCH_USE"
       - name: Show sanitized evidence (including explicit unproven items)
         if: always()
         run: python -m json.tool .e2e-results/live-tools.json

@@ -12,6 +12,8 @@ from .models import ClientId
 from .paths import PathContext, configured_path_templates
 
 JMUNCH_ENV = {
+    # Runtime imports must not change hash-guarded managed installation trees.
+    "PYTHONDONTWRITEBYTECODE": "1",
     "JCODEMUNCH_SHARE_SAVINGS": "0",
     "JDOCMUNCH_SHARE_SAVINGS": "0",
     "JDATAMUNCH_SHARE_SAVINGS": "0",

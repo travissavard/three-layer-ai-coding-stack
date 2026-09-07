@@ -1,4 +1,4 @@
-"""Opt-in network integration tests; no AI clients, model calls, or jMunch use.
+"""Opt-in network integration tests; no AI clients or model calls.
 
 Runs the real launcher/RTK installer and real language-server install commands.
 Seeded client configuration tests adapter setup, NOT real client consumption.
@@ -121,7 +121,11 @@ def isolated_environment(root: Path, *, native_home: Path | None = None) -> dict
     return env
 
 
-def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -> int:
+def worker(
+    root: Path, launcher: str, languages: list[str], report_path: Path, jmunch_use: str = "skip",
+) -> int:
+    from live_jmunch import create_fixtures, managed_prefixes, path_snapshot, verify_saved_entries
+
     from three_layer_installer.adapters import adapter_for
     from three_layer_installer.manifests import load_manifests
     from three_layer_installer.models import ClientId
@@ -141,7 +145,10 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         "python": platform.python_version(),
         "scope": "real-tool integration only",
         "client_consumption": "UNPROVEN: no AI client is launched",
-        "jmunch": "UNPROVEN: license basis not declared; not installed or executed",
+        "jmunch": {
+            "declared_use": jmunch_use,
+            "status": "SKIPPED" if jmunch_use == "skip" else "PENDING",
+        },
         "isolation": "disposable CI Windows user" if native_home else "temporary home and PATH",
         "commands": [],
         "checks": [],
@@ -235,7 +242,7 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         "--all",
         "--yes",
         "--jmunch-use",
-        "skip",
+        jmunch_use,
         "--languages",
         "none",
         "--project",
@@ -291,12 +298,19 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         }
 
     baseline_configs = config_snapshot()
+    fixtures = create_fixtures(root) if jmunch_use != "skip" else None
+    fixture_baseline = path_snapshot(fixtures) if fixtures else None
+    managed_baselines: dict[str, dict[str, dict[str, str] | None]] = {}
 
     def apply() -> str:
+        managed_before = {
+            str(path): path_snapshot(path) for path in managed_prefixes(context)
+        } if fixtures else {}
         stdout = run([*prefix, *args])
         ids = re.findall(r"Backup ID: ([\w-]+)", stdout)
         assert len(ids) == 1, "real installation did not produce exactly one backup ID"
         install_ids.append(ids[0])
+        managed_baselines[ids[0]] = managed_before
         expected_routing = {
             "claude": (context.home / ".claude/settings.json", "rtk hook claude"),
             "codex": (context.home / ".codex/AGENTS.md", "rtk"),
@@ -321,6 +335,19 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         return ids[0]
 
     check("fresh RTK install + all config-detected adapters", apply)
+
+    def jmunch_queries(*, fresh: bool) -> str:
+        assert fixtures is not None
+        evidence: dict = {}
+        report["jmunch"]["fresh" if fresh else "reinstall"] = evidence
+        verify_saved_entries(
+            manifest, context, project, fixtures, fresh=fresh, evidence=evidence,
+        )
+        assert path_snapshot(fixtures) == fixture_baseline, "retrieval changed input fixtures"
+        return "all 10 persisted configs; all 3 products via managed + uvx; exact retrieval"
+
+    if fixtures:
+        check("jMunch fresh install and retrieval", lambda: jmunch_queries(fresh=True))
     rtk = context.state_root / "bin" / ("rtk.exe" if os.name == "nt" else "rtk")
 
     def require_rtk_binary() -> str:
@@ -342,7 +369,11 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
 
         check("RTK actual commands", rtk_queries)
         check("reinstall", apply)
+        if fixtures:
+            check("jMunch reinstall and retrieval", lambda: jmunch_queries(fresh=False))
     if len(install_ids) == 2:
+        indexes = [context.home / name for name in (".code-index", ".doc-index", ".data-index")]
+        index_baselines = {str(path): path_snapshot(path) for path in indexes} if fixtures else {}
 
         def conflict_restore() -> str:
             target = context.home / ".qwen/QWEN.md"
@@ -371,7 +402,12 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                 run([*prefix, "--restore", operation_id])
                 for record in records:
                     target = Path(record["path"])
-                    if record["existed"]:
+                    if str(target) in managed_baselines[operation_id]:
+                        expected_state = managed_baselines[operation_id][str(target)]
+                        assert path_snapshot(target) == expected_state, (
+                            f"managed installation did not return to its baseline: {target}"
+                        )
+                    elif record["existed"]:
                         assert target.is_file(), f"missing restored fixture: {target}"
                         assert (
                             hashlib.sha256(target.read_bytes()).hexdigest()
@@ -380,6 +416,17 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                     else:
                         assert not target.exists(), f"new owned file survived restore: {target}"
                 assert hashlib.sha256(sentinel.read_bytes()).hexdigest() == sentinel_hash
+                for managed_path, expected_state in managed_baselines[operation_id].items():
+                    assert path_snapshot(Path(managed_path)) == expected_state, (
+                        f"restore changed or retained a managed installation: {managed_path}"
+                    )
+                if fixtures:
+                    assert path_snapshot(fixtures) == fixture_baseline, "restore changed fixtures"
+                    for index_path, baseline in index_baselines.items():
+                        assert baseline is not None, f"expected live index absent: {index_path}"
+                        assert path_snapshot(Path(index_path)) == baseline, (
+                            f"restore changed a non-owned index: {index_path}"
+                        )
                 return f"{len(records)} owned file states match baseline; unrelated file preserved"
 
             check("restore " + operation_id, restore)
@@ -551,6 +598,10 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
             "complete config tree restore",
             *(language + " language server" for language in languages),
         }
+        if fixtures:
+            expected.update({
+                "jMunch fresh install and retrieval", "jMunch reinstall and retrieval",
+            })
         actual = {item["name"] for item in report["checks"]}
         assert expected <= actual, f"required checks were omitted: {sorted(expected - actual)}"
         restores = [name for name in actual if re.fullmatch(r"restore [\w-]+", name)]
@@ -559,6 +610,12 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
 
     check("required verification stages", require_all_stages)
     report["passed"] = all(item["status"] == "PASS" for item in report["checks"])
+    if fixtures:
+        jmunch_checks = {item["name"]: item["status"] for item in report["checks"]}
+        report["jmunch"]["status"] = "PASS" if all(
+            jmunch_checks.get(name) == "PASS"
+            for name in ("jMunch fresh install and retrieval", "jMunch reinstall and retrieval")
+        ) else "FAIL"
     report["full_end_to_end"] = False
     save()
     return 0 if report["passed"] else 1
@@ -567,6 +624,10 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--languages", default="typescript,python")
+    parser.add_argument(
+        "--jmunch-use", choices=("skip", "noncommercial", "commercial-licensed"), default="skip",
+        help="Explicit license declaration for real jMunch installation and fixture retrieval",
+    )
     parser.add_argument("--report", type=Path, default=REPO / ".e2e-results/live-tools.json")
     parser.add_argument("--worker", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--launcher", help=argparse.SUPPRESS)
@@ -580,7 +641,7 @@ def main() -> int:
     if set(languages) - {"typescript", "python", "go", "rust"}:
         parser.error("supported test fixtures: typescript,python,go,rust")
     if args.worker:
-        return worker(args.worker, args.launcher, languages, args.report)
+        return worker(args.worker, args.launcher, languages, args.report, args.jmunch_use)
     native_home = None
     if os.name == "nt":
         if not args.ci_native_home or os.environ.get("GITHUB_ACTIONS") != "true":
@@ -608,6 +669,8 @@ def main() -> int:
             launcher,
             "--languages",
             args.languages,
+            "--jmunch-use",
+            args.jmunch_use,
             "--report",
             str(args.report.resolve()),
         ],

@@ -1,12 +1,16 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import tomlkit
 
 from three_layer_installer.adapters import JMUNCH_ENV, adapter_for
+from three_layer_installer.backup import BackupManager
 from three_layer_installer.manifests import load_manifests
-from three_layer_installer.models import ClientId
+from three_layer_installer.models import ClientId, JMunchUse
 from three_layer_installer.paths import PathContext, PlatformKind
 
 
@@ -20,6 +24,33 @@ def windows_context(tmp_path: Path) -> PathContext:
             "LOCALAPPDATA": str(tmp_path / "Local"),
         },
     )
+
+
+def test_managed_server_imports_do_not_invalidate_restore(
+    windows_context: PathContext,
+) -> None:
+    adapter = adapter_for(ClientId.CODEX, load_manifests(), windows_context)
+    target = windows_context.state_root / "tools/jmunch/fixture"
+    manager = BackupManager(windows_context.state_root)
+    operation = manager.begin((target,), JMunchUse.NONCOMMERCIAL)
+    target.mkdir(parents=True)
+    (target / "fixture_module.py").write_text("VALUE = 314\n", encoding="utf-8")
+    manager.finalize(operation)
+    entry = adapter.jmunch_entries()["jcodemunch"]
+    environment = entry["env"]
+    assert isinstance(environment, dict)
+    child_env = {
+        key: value for key, value in os.environ.items()
+        if key not in {"PYTHONPYCACHEPREFIX", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE"}
+    }
+    child_env.update(environment)
+    completed = subprocess.run(
+        [sys.executable, "-c", "import fixture_module; print(fixture_module.VALUE)"],
+        cwd=target, env=child_env, capture_output=True, text=True, check=True,
+    )
+    assert completed.stdout.strip() == "314"
+    manager.restore(operation.operation_id)
+    assert not target.exists()
 
 
 def test_every_client_has_a_resolvable_user_mcp_target(windows_context: PathContext) -> None:

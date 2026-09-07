@@ -8,5 +8,6 @@ COPY src ./src
 COPY config ./config
 COPY install.sh ./install.sh
 COPY scripts/live_tools.py ./scripts/live_tools.py
+COPY scripts/live_jmunch.py ./scripts/live_jmunch.py
 RUN uv sync --frozen --no-dev
 CMD ["uv", "run", "--frozen", "--no-dev", "python", "scripts/live_tools.py", "--report", "/results/linux-docker.json"]

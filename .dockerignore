@@ -10,6 +10,7 @@
 !install.sh
 !scripts/
 !scripts/live_tools.py
+!scripts/live_jmunch.py
 !scripts/live-tools.Dockerfile
 **/__pycache__/
 **/*.pyc
