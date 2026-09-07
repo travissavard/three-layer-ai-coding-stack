@@ -533,8 +533,8 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                     "references": refs,
                     "hover": hover,
                 }
-                rpc.request("shutdown", {})
-                rpc.notify("exit", {})
+                rpc.request("shutdown", None)
+                rpc.notify("exit", None)
             finally:
                 rpc.close()
             return "fresh package + nonempty symbols, definition, references, and hover"

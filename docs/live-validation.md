@@ -92,3 +92,7 @@ On Windows, gopls rejected a temporary workspace containing the short-name alias
 `RUNNER~1`, because Windows reports the actual directory as `runneradmin`. Both
 the live harness and the installer's protocol verifier now resolve the temporary
 directory to its canonical path before constructing language-server file URIs.
+
+Rust's real server also rejected the verifier's empty-object shutdown parameters.
+The shared protocol verifier and live harness now send null parameters for the
+parameterless LSP shutdown and exit messages. Regression assertions cover both.

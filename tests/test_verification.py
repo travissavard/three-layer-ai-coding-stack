@@ -16,17 +16,19 @@ class FakeTransport:
         self.responses = responses
         self.requests: list[str] = []
         self.notifications: list[str] = []
+        self.request_params: dict[str, dict[str, object] | None] = {}
+        self.notification_params: dict[str, dict[str, object] | None] = {}
 
-    def request(self, method: str, params: dict[str, object]) -> Any:
-        del params
+    def request(self, method: str, params: dict[str, object] | None) -> Any:
+        self.request_params[method] = params
         self.requests.append(method)
         value = self.responses[method]
         if isinstance(value, Exception):
             raise value
         return value
 
-    def notify(self, method: str, params: dict[str, object]) -> None:
-        del params
+    def notify(self, method: str, params: dict[str, object] | None) -> None:
+        self.notification_params[method] = params
         self.notifications.append(method)
 
     def close(self) -> None:
@@ -112,6 +114,8 @@ def test_lsp_verification_exercises_navigation_and_shutdown() -> None:
         "shutdown",
     ]
     assert transport.notifications == ["initialized", "textDocument/didOpen", "exit", "closed"]
+    assert transport.request_params["shutdown"] is None
+    assert transport.notification_params["exit"] is None
 
 
 def test_lsp_verification_surfaces_protocol_failure_and_closes_transport() -> None:

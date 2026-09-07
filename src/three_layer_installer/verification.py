@@ -21,9 +21,9 @@ class ProtocolCheck:
 
 
 class JsonRpcTransport(Protocol):
-    def request(self, method: str, params: dict[str, object]) -> Any: ...
+    def request(self, method: str, params: dict[str, object] | None) -> Any: ...
 
-    def notify(self, method: str, params: dict[str, object]) -> None: ...
+    def notify(self, method: str, params: dict[str, object] | None) -> None: ...
 
     def close(self) -> None: ...
 
@@ -111,7 +111,7 @@ class ProcessJsonRpcTransport:
                 self.process.kill()
                 raise RuntimeError("JSON-RPC response timed out") from exc
 
-    def request(self, method: str, params: dict[str, object]) -> Any:
+    def request(self, method: str, params: dict[str, object] | None) -> Any:
         request_id = self.next_id
         self.next_id += 1
         self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
@@ -139,7 +139,7 @@ class ProcessJsonRpcTransport:
                 raise RuntimeError(f"JSON-RPC {method} returned an error")
             return response.get("result")
 
-    def notify(self, method: str, params: dict[str, object]) -> None:
+    def notify(self, method: str, params: dict[str, object] | None) -> None:
         self._write({"jsonrpc": "2.0", "method": method, "params": params})
 
     def close(self) -> None:
@@ -249,8 +249,8 @@ def verify_lsp_transport(
             },
         )
         transport.request("textDocument/hover", {"textDocument": document, "position": position})
-        transport.request("shutdown", {})
-        transport.notify("exit", {})
+        transport.request("shutdown", None)
+        transport.notify("exit", None)
         return ProtocolCheck(True, "LSP navigation protocol verified")
     except Exception as exc:
         return ProtocolCheck(False, f"LSP protocol verification failed ({type(exc).__name__})")
