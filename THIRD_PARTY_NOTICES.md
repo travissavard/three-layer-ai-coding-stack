@@ -40,10 +40,12 @@ same explicit use declaration before configuration.
 | TOMLKit 0.15.1 | Python runtime dependency | [MIT](https://github.com/python-poetry/tomlkit/blob/master/LICENSE) |
 | Python 3.10+ | Runtime, obtained by uv when needed | [PSF-2.0](https://docs.python.org/3/license.html) |
 | TypeScript Language Server 6.0.0 | Optional language pack | [Apache-2.0 with MIT portions](https://github.com/typescript-language-server/typescript-language-server/blob/master/LICENSE) |
-| TypeScript 7.0.2 | Optional language pack | [Apache-2.0](https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt) |
+| TypeScript 6.0.3 | Optional language pack | [Apache-2.0](https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt) |
 | Pyright 1.1.413 | Optional language pack | [MIT](https://github.com/microsoft/pyright/blob/main/LICENSE.txt) |
 | gopls 0.23.0 | Optional language pack | [BSD-3-Clause](https://github.com/golang/tools/blob/master/LICENSE) |
 | rust-analyzer | Optional active-rustup-toolchain component | [MIT OR Apache-2.0](https://github.com/rust-lang/rust-analyzer#license) |
+| rustup | Existing prerequisite copied into the isolated Rust test environment | [MIT OR Apache-2.0](https://github.com/rust-lang/rustup#license) |
+| Rust toolchain and rust-src | Downloaded into isolated directories by the optional live tests | [MIT OR Apache-2.0; bundled third-party notices also apply](https://github.com/rust-lang/rust#license) |
 
 These packages are acquired from their documented upstream release page or standard package
 registry. The repository does not vendor their source or binaries.

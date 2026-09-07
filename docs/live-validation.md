@@ -5,6 +5,38 @@ The opt-in `Live tool integration (not client E2E)` workflow adds real downloads
 real launcher execution, actual RTK commands, reinstall/restore, and meaningful
 language-server queries on GitHub-hosted Windows, macOS, and Linux machines.
 
+## Observed results: 2026-09-07
+
+The [real-tool run for commit `1c707ba`](https://github.com/travissavard/three-layer-ai-coding-stack/actions/runs/34129622941)
+passed every required component check on all three hosted operating systems.
+The [ordinary CI run for the same commit](https://github.com/travissavard/three-layer-ai-coding-stack/actions/runs/34129622942)
+also passed: 131 tests per OS, coverage above 80%, lint, strict type checks,
+distribution builds, installed-wheel smoke tests, and launcher checks.
+
+| Tested behavior | Windows | macOS | Linux | Local Linux Docker |
+|---|---|---|---|---|
+| Fresh RTK install, routing files for ten config-detected adapters, actual RTK commands | PASS | PASS | PASS | PASS |
+| Reinstall, conflict refusal, both restores, complete client config-file preservation | PASS | PASS | PASS | PASS |
+| TypeScript and Python: symbols, definitions, references, hover, shutdown | PASS | PASS | PASS | PASS |
+| Go and Rust: symbols, definitions, references, hover, shutdown | PASS | PASS | PASS | Not run |
+| jMunch install, indexing, and retrieval | Not run | Not run | Not run | Not run |
+| Actual client loads and uses the layers | Not run | Not run | Not run | Not run |
+| Restore after full jMunch and client-plugin installation | Not run | Not run | Not run | Not run |
+
+The hosted reports contain thirteen passing stage checks and independent routing
+assertions for all ten adapters on both installs. They record Rust 1.98.1 and
+rustup 1.29.0. The local Docker report is retained at
+`.e2e-results/linux-docker-shutdown.json`; it is not published because raw local
+test artifacts are excluded from Git. Docker ran the same tested code revision.
+
+**Overall state: partially verified, not full client end-to-end certification.**
+The unrun rows require a valid jMunch license declaration and authorized client
+execution in isolated profiles, including any required account access. Existing
+configuration files are not evidence that a real client consumed them. No client
+launch, model call, or jMunch use occurred in these runs.
+
+## Reproduce the component tests
+
 Run the component tests on Linux/macOS with Node.js, Git, Python, and uv installed:
 
 ```bash
