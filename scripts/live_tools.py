@@ -145,6 +145,8 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
             response = super()._read_sync()
             if "error" in response:
                 report.setdefault("protocol_errors", []).append(response)
+            if response.get("method") in {"window/showMessage", "window/logMessage"}:
+                report.setdefault("server_messages", []).append(response)
             return response
 
     def save() -> None:
@@ -269,6 +271,12 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
 
     check("fresh RTK install + all config-detected adapters", apply)
     rtk = context.state_root / "bin" / ("rtk.exe" if os.name == "nt" else "rtk")
+
+    def require_rtk_binary() -> str:
+        assert rtk.is_file(), "fresh installation did not produce the managed RTK binary"
+        return "managed RTK executable exists"
+
+    check("required RTK binary", require_rtk_binary)
     if rtk.exists():
 
         def rtk_queries() -> str:
