@@ -12,12 +12,23 @@ uv sync --frozen
 uv run --frozen python scripts/live_tools.py
 ```
 
-Add `--languages typescript,python,go` when Go is installed. The harness downloads
-the manifest's actual language-server packages into a temporary npm/Go prefix.
+Add `--languages typescript,python,go,rust` when Go and rustup are installed.
+The harness downloads the manifest's actual language-server packages into
+temporary npm/Go/Rust directories.
 It requires nonempty symbol, definition, reference, and hover results for known
-fixture functions. Rust and actual AI-client consumption are not covered by this
+fixture functions. Actual AI-client consumption is not covered by this
 harness. LSP is supplied by the AI client/editor; a working server does not give
 LSP tools to a client that does not expose them.
+
+Rust testing copies only the prerequisite rustup executable, installs a minimal
+stable toolchain plus `rust-src` in isolated `RUSTUP_HOME`/`CARGO_HOME` directories,
+and runs the manifest's `rustup component add rust-analyzer` command. Component
+inventories prove a fresh install; the report records the resolved versions
+because the manifest deliberately follows the active rustup toolchain. A
+dependency-free Cargo fixture is tested only after the server reports healthy,
+quiescent status. Build scripts, procedural macros, and check-on-save are disabled
+and remain untested. See [rustup isolation](https://rust-lang.github.io/rustup/installation/index.html#choosing-where-to-install)
+and [rust-analyzer readiness](https://rust-analyzer.github.io/book/contributing/lsp-extensions.html#server-status).
 
 Docker provides an additional Linux run without using personal client configs:
 

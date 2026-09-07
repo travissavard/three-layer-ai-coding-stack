@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from three_layer_installer import stack_verifier
 from three_layer_installer.adapters import adapter_for
 from three_layer_installer.cli import parse_args
 from three_layer_installer.executor import CommandResult
@@ -271,8 +270,7 @@ def test_lsp_fixture_uri_uses_canonical_temporary_path(
     (workspace / "alias").mkdir(parents=True)
     temporary_alias = workspace / "alias" / ".."
     monkeypatch.setattr(
-        stack_verifier.tempfile,
-        "TemporaryDirectory",
+        "three_layer_installer.stack_verifier.tempfile.TemporaryDirectory",
         lambda **_kwargs: nullcontext(str(temporary_alias)),
     )
     observed: list[object] = []

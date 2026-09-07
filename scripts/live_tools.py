@@ -65,6 +65,9 @@ def isolated_environment(root: Path, *, native_home: Path | None = None) -> dict
         source = Path(uv).parent / name
         if source.is_file():
             shutil.copy2(source, root / "bin" / name)
+    rustup = shutil.which("rustup")
+    if rustup:
+        shutil.copy2(rustup, root / "bin" / Path(rustup).name)
     env.update(
         {
             "PATH": os.pathsep.join(dict.fromkeys(paths)),
@@ -100,6 +103,10 @@ def isolated_environment(root: Path, *, native_home: Path | None = None) -> dict
             "GOPATH": str(root / "go"),
             "GOCACHE": str(root / "cache/go"),
             "GOTOOLCHAIN": "auto",
+            "CARGO_HOME": str(root / "cargo"),
+            "CARGO_TARGET_DIR": str(root / "cache/cargo-target"),
+            "RUSTUP_HOME": str(root / "rustup"),
+            "RUSTUP_TOOLCHAIN": "stable",
             "RTK_TELEMETRY_DISABLED": "1",
             "GOTELEMETRY": "off",
         }
@@ -145,9 +152,23 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
             response = super()._read_sync()
             if "error" in response:
                 report.setdefault("protocol_errors", []).append(response)
-            if response.get("method") in {"window/showMessage", "window/logMessage"}:
+            if response.get("method") in {
+                "window/showMessage", "window/logMessage", "experimental/serverStatus",
+            }:
                 report.setdefault("server_messages", []).append(response)
             return response
+
+        def wait_for_rust_workspace(self) -> None:
+            deadline = time.monotonic() + self.timeout
+            while time.monotonic() < deadline:
+                response = self._read()
+                assert "id" not in response, "unexpected request while awaiting Rust readiness"
+                if response.get("method") == "experimental/serverStatus":
+                    status = response["params"]
+                    if status.get("quiescent") is True:
+                        assert status.get("health") == "ok", f"Rust workspace unhealthy: {status}"
+                        return
+            raise AssertionError("Rust workspace did not become ready before the deadline")
 
     def save() -> None:
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -377,8 +398,29 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
         def language_test(language=language, definition=definition) -> str:
             command = definition["command"]
             assert not shutil.which(command[0]), "server already present; not a fresh install"
+            if language == "rust":
+                assert shutil.which("rustup"), "rustup executable prerequisite is missing"
+                assert not (root / "rustup/toolchains").exists(), "Rust toolchain is not fresh"
+                run([
+                    "rustup", "toolchain", "install", "stable", "--profile", "minimal",
+                    "--component", "rust-src", "--no-self-update",
+                ])
+                toolchain_bin = Path(run(["rustup", "which", "cargo"]).strip()).parent.resolve()
+                assert toolchain_bin.is_relative_to(root / "rustup"), "Rust escaped test root"
+                os.environ["PATH"] = str(toolchain_bin) + os.pathsep + os.environ["PATH"]
+                before = run(["rustup", "component", "list", "--installed"])
+                assert "rust-analyzer" not in before, "Rust analyzer component already installed"
             run(definition["installer"])
             assert shutil.which(command[0]), "installer did not put language server on test PATH"
+            if language == "rust":
+                after = run(["rustup", "component", "list", "--installed"])
+                assert "rust-analyzer" in after, "Rust analyzer component not installed"
+                executable = Path(run(["rustup", "which", "rust-analyzer"]).strip()).resolve()
+                assert executable.is_relative_to(root / "rustup"), "Rust server escaped test root"
+                report["rust_versions"] = {
+                    tool: run([tool, "--version"]).strip()
+                    for tool in ("rustup", "rustc", "rust-analyzer")
+                }
             folder = project / language
             folder.mkdir()
             if language == "typescript":
@@ -410,10 +452,28 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                 (folder / "go.mod").write_text(
                     "module example.test/live\n\ngo 1.24\n", encoding="utf-8"
                 )
+            elif language == "rust":
+                name, content, line, char = (
+                    "main.rs",
+                    "fn doubled(value: i32) -> i32 { value * 2 }\n"
+                    "fn main() {\n    let _ = doubled(21);\n    let _ = doubled(7);\n}\n",
+                    2,
+                    15,
+                )
+                (folder / "Cargo.toml").write_text(
+                    '[package]\nname = "live-fixture"\nversion = "0.1.0"\n'
+                    'edition = "2021"\n\n[workspace]\n', encoding="utf-8",
+                )
+                (folder / "src").mkdir()
             else:
-                raise ValueError("This harness currently exercises TypeScript, Python, and Go")
-            document = folder / name
+                raise ValueError(f"unsupported language fixture: {language}")
+            document = folder / "src" / name if language == "rust" else folder / name
             document.write_text(content, encoding="utf-8")
+            if language == "rust":
+                run([
+                    "cargo", "metadata", "--offline", "--no-deps", "--format-version", "1",
+                    "--manifest-path", str(folder / "Cargo.toml"),
+                ])
             rpc = EvidenceTransport(command, framing="content-length", timeout=60)
             try:
                 initialized = rpc.request(
@@ -422,7 +482,17 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                         "processId": None,
                         "rootUri": folder.as_uri(),
                         "workspaceFolders": [{"uri": folder.as_uri(), "name": language}],
-                        "capabilities": {},
+                        "capabilities": (
+                            {"experimental": {"serverStatusNotification": True}}
+                            if language == "rust" else {}
+                        ),
+                        "initializationOptions": (
+                            {
+                                "cargo": {"buildScripts": {"enable": False}},
+                                "procMacro": {"enable": False},
+                                "checkOnSave": False,
+                            } if language == "rust" else {}
+                        ),
                     },
                 )
                 assert initialized.get("capabilities"), "missing LSP capabilities"
@@ -438,6 +508,8 @@ def worker(root: Path, launcher: str, languages: list[str], report_path: Path) -
                         }
                     },
                 )
+                if language == "rust":
+                    rpc.wait_for_rust_workspace()
                 params = {
                     "textDocument": {"uri": document.as_uri()},
                     "position": {"line": line, "character": char},
@@ -505,8 +577,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     languages = args.languages.split(",") if args.languages else []
-    if set(languages) - {"typescript", "python", "go"}:
-        parser.error("supported test fixtures: typescript,python,go")
+    if set(languages) - {"typescript", "python", "go", "rust"}:
+        parser.error("supported test fixtures: typescript,python,go,rust")
     if args.worker:
         return worker(args.worker, args.launcher, languages, args.report)
     native_home = None
