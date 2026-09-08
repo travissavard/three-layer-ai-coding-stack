@@ -87,10 +87,15 @@ def verify_saved_entries(
         adapter = adapter_for(client, manifests, context, project=project)
         definition = adapter.definition["mcp"]
         assert isinstance(definition, dict)
-        document = read_config(
-            adapter.mcp_target.read_text(encoding="utf-8-sig"),
-            definition["format"],
+        text = adapter.mcp_target.read_text(encoding="utf-8-sig")
+        document = read_config(text, definition["format"])
+        assert document.get("fixturePreserved") is True, (
+            f"{client.value}: unrelated fixture setting was lost during installation"
         )
+        if definition["format"] == "toml":
+            assert "# preserved fixture" in text, (
+                f"{client.value}: unrelated fixture comment was lost during installation"
+            )
         saved = document.get(definition["root_key"], {})
         assert isinstance(saved, dict), f"{client.value}: missing MCP configuration root"
         for product in PRODUCTS:

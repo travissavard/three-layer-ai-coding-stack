@@ -252,16 +252,20 @@ def worker(
     # not stand-ins claimed as live clients. Versions/LSP client setup remain unproven.
     seeded_targets: list[Path] = []
     for client in ClientId:
-        target = adapter_for(client, manifest, context).mcp_target
-        seeded_targets.append(target)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists():
-            target.write_text(
-                "# preserved fixture\n"
-                if target.suffix == ".toml"
-                else '{"fixturePreserved": true}\n',
-                encoding="utf-8",
-            )
+        # Keep user-scope detection fixtures and also seed the actual write targets.
+        for target in dict.fromkeys([
+            adapter_for(client, manifest, context).mcp_target,
+            adapter_for(client, manifest, context, project=project).mcp_target,
+        ]):
+            seeded_targets.append(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                target.write_text(
+                    "# preserved fixture\nfixturePreserved = true\n"
+                    if target.suffix == ".toml"
+                    else '{"fixturePreserved": true}\n',
+                    encoding="utf-8",
+                )
     sentinel = project / "untouched.txt"
     sentinel.write_text("must survive install and restore\n", encoding="utf-8")
     sentinel_hash = hashlib.sha256(sentinel.read_bytes()).hexdigest()
