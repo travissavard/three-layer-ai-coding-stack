@@ -1,19 +1,45 @@
 import re
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {".json", ".md", ".ps1", ".py", ".sh", ".toml", ".yml", ".yaml"}
-IGNORED_PARTS = {".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv", "dist"}
 
 
 def repository_text() -> dict[Path, str]:
     files: dict[Path, str] = {}
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
+    listing = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT, check=True, capture_output=True, encoding="utf-8",
+    ).stdout
+    for relative in listing.split("\0"):
+        if not relative:
+            continue
+        path = ROOT / relative
+        if not path.is_file():
             continue
         if path.suffix in TEXT_SUFFIXES or path.name in {"LICENSE", ".gitignore"}:
             files[path.relative_to(ROOT)] = path.read_text(encoding="utf-8")
     return files
+
+
+@pytest.mark.parametrize("force_tracked", [False, True])
+def test_publication_scan_respects_git_ignores_but_checks_forced_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, force_tracked: bool,
+) -> None:
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("private/\n", encoding="utf-8")
+    (tmp_path / "public.md").write_text("public fixture", encoding="utf-8")
+    (tmp_path / "private").mkdir()
+    (tmp_path / "private/config.md").write_text("ignored test artifact", encoding="utf-8")
+    if force_tracked:
+        subprocess.run(["git", "add", "-f", "private/config.md"], cwd=tmp_path, check=True)
+    monkeypatch.setitem(repository_text.__globals__, "ROOT", tmp_path)
+    found = repository_text()
+    assert found[Path("public.md")] == "public fixture"
+    assert (Path("private/config.md") in found) is force_tracked
 
 
 def test_public_documentation_is_complete() -> None:
